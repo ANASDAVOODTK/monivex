@@ -2,7 +2,7 @@
 /bin/
 /dist/
 *.exe
-server-monitor
+/server-monitor
 
 # Embedded static UI
 /web/out/

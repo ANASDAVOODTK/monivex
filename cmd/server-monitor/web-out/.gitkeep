@@ -1,0 +1,1 @@
+# This directory is filled at build time by `make build` (npm run build && copy web/out -> cmd/server-monitor/web-out).
