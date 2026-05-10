@@ -1,0 +1,33 @@
+[Unit]
+Description=Server Monitor Dashboard
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=server-monitor
+Group=server-monitor
+SupplementaryGroups=docker
+ExecStart=/opt/server-monitor/server-monitor --config /etc/server-monitor/config.yaml
+WorkingDirectory=/opt/server-monitor
+Restart=on-failure
+RestartSec=5
+
+# Hardening — keep read-only access to system info while still letting us read /proc, /sys, docker socket.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/server-monitor
+ReadOnlyPaths=/etc/server-monitor
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

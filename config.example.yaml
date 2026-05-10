@@ -1,0 +1,38 @@
+server:
+  bind: "0.0.0.0:8080"
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+data_dir: "./data"
+
+metrics:
+  # How often collectors sample (seconds).
+  sample_interval: 1
+  # How often samples are persisted to SQLite (seconds).
+  persist_interval: 10
+  # Retention for 1s/persisted rows.
+  retention_short: "24h"
+  # Retention for 1m rollup rows.
+  retention_long: "30d"
+
+processes:
+  top_n: 50
+
+logs:
+  # Whitelist of log files the UI is allowed to tail.
+  allowed_paths:
+    - /var/log/syslog
+    - /var/log/auth.log
+    - /var/log/nginx/access.log
+    - /var/log/nginx/error.log
+
+docker:
+  enabled: true
+  socket: "/var/run/docker.sock"
+
+gpu:
+  enabled: true
+  # "nvml" (preferred) or "nvidia-smi" (fallback). "auto" tries NVML first.
+  backend: "auto"
