@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
 	"github.com/ANASDAVOODTK/server-monitor/internal/config"
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
+	"github.com/ANASDAVOODTK/server-monitor/internal/nodejs"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 	"github.com/ANASDAVOODTK/server-monitor/internal/ws"
 )
@@ -65,6 +67,12 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/docker/containers/{id}/start", s.handleDockerStart)
 			r.Post("/docker/containers/{id}/stop", s.handleDockerStop)
 			r.Post("/docker/containers/{id}/restart", s.handleDockerRestart)
+			r.Get("/node-apps", s.handleNodeApps)
+			r.Post("/node-apps", s.handleNodeAppsCreate)
+			r.Post("/node-apps/{pmId}/start", s.handleNodeAppStart)
+			r.Post("/node-apps/{pmId}/stop", s.handleNodeAppStop)
+			r.Post("/node-apps/{pmId}/restart", s.handleNodeAppRestart)
+			r.Post("/node-apps/{pmId}/delete", s.handleNodeAppDelete)
 			r.Get("/history", s.handleHistory)
 			r.Get("/logs/sources", s.handleLogSources)
 		})
@@ -231,6 +239,147 @@ func (s *Server) handleDockerStop(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDockerRestart(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.hub.Docker().RestartContainer(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) nodeMgr() *nodejs.Manager {
+	return &nodejs.Manager{
+		PM2Path:               s.cfg.NodeJS.PM2Path,
+		AllowedScriptPrefixes: s.cfg.NodeJS.AllowedScriptPrefixes,
+	}
+}
+
+func (s *Server) handleNodeApps(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.NodeJS.Enabled {
+		writeJSON(w, 200, map[string]any{
+			"enabled": false,
+			"pm2":     map[string]any{"available": false},
+			"apps":    []any{},
+		})
+		return
+	}
+	m := s.nodeMgr()
+	avail, ver, errMsg := m.Status(r.Context())
+	pm2meta := map[string]any{
+		"available":        avail,
+		"version":          ver,
+		"error":            errMsg,
+		"can_start_new":    len(s.cfg.NodeJS.AllowedScriptPrefixes) > 0,
+		"allowed_prefixes": s.cfg.NodeJS.AllowedScriptPrefixes,
+	}
+	out := map[string]any{"enabled": true, "pm2": pm2meta}
+	if !avail {
+		out["apps"] = []any{}
+		writeJSON(w, 200, out)
+		return
+	}
+	apps, err := m.List(r.Context())
+	if err != nil {
+		out["apps"] = []any{}
+		pm2meta["list_error"] = err.Error()
+		writeJSON(w, 200, out)
+		return
+	}
+	out["apps"] = apps
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) handleNodeAppsCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.NodeJS.Enabled {
+		writeErr(w, 403, "nodejs disabled in config")
+		return
+	}
+	if len(s.cfg.NodeJS.AllowedScriptPrefixes) == 0 {
+		writeErr(w, 403, "configure nodejs.allowed_script_prefixes to enable starting apps from the UI")
+		return
+	}
+	var body struct {
+		Script string `json:"script"`
+		Name   string `json:"name"`
+		Cwd    string `json:"cwd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad json")
+		return
+	}
+	if err := s.nodeMgr().StartNew(r.Context(), body.Script, body.Name, body.Cwd); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func parsePMID(w http.ResponseWriter, r *http.Request) (int, bool) {
+	sid := chi.URLParam(r, "pmId")
+	id, err := strconv.Atoi(sid)
+	if err != nil || id < 0 {
+		writeErr(w, 400, "bad pm id")
+		return 0, false
+	}
+	return id, true
+}
+
+func (s *Server) handleNodeAppStart(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.NodeJS.Enabled {
+		writeErr(w, 403, "nodejs disabled")
+		return
+	}
+	id, ok := parsePMID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.nodeMgr().Start(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleNodeAppStop(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.NodeJS.Enabled {
+		writeErr(w, 403, "nodejs disabled")
+		return
+	}
+	id, ok := parsePMID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.nodeMgr().Stop(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleNodeAppRestart(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.NodeJS.Enabled {
+		writeErr(w, 403, "nodejs disabled")
+		return
+	}
+	id, ok := parsePMID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.nodeMgr().Restart(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleNodeAppDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.NodeJS.Enabled {
+		writeErr(w, 403, "nodejs disabled")
+		return
+	}
+	id, ok := parsePMID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.nodeMgr().Delete(r.Context(), id); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}

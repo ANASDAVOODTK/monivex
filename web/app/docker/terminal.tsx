@@ -5,9 +5,12 @@ import { useEffect, useRef } from 'react';
 // Dynamically imported to avoid SSR issues with xterm
 export default function DockerExecTerminal({
   containerId,
+  shell = 'auto',
   onClose,
 }: {
   containerId: string;
+  /** Passed to server: auto prefers bash when the image has it; sh for minimal images. */
+  shell?: 'auto' | 'bash' | 'sh';
   onClose: () => void;
 }) {
   const termRef = useRef<HTMLDivElement>(null);
@@ -70,7 +73,8 @@ export default function DockerExecTerminal({
 
       // Connect WebSocket
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const url = `${proto}://${window.location.host}/ws/docker/exec/${encodeURIComponent(containerId)}`;
+      const q = new URLSearchParams({ shell });
+      const url = `${proto}://${window.location.host}/ws/docker/exec/${encodeURIComponent(containerId)}?${q}`;
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
@@ -137,7 +141,7 @@ export default function DockerExecTerminal({
         (termRef.current as any)._cleanup();
       }
     };
-  }, [containerId]);
+  }, [containerId, shell]);
 
   return (
     <div

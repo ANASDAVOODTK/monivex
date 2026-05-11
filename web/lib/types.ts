@@ -128,3 +128,32 @@ export interface ServiceUnit {
   active_state: string;
   sub_state: string;
 }
+
+export interface NodeApp {
+  pm_id: number;
+  name: string;
+  status: string;
+  mode: string;
+  cpu: number;
+  memory: number;
+  restarts: number;
+  uptime_ms: number;
+  script: string;
+  cwd: string;
+}
+
+export interface NodeAppsPM2Meta {
+  available: boolean;
+  version?: string;
+  error?: string;
+  list_error?: string;
+  /** When false or missing, "Start app" from UI is disabled (configure allowed_script_prefixes). */
+  can_start_new?: boolean;
+  allowed_prefixes?: string[];
+}
+
+export interface NodeAppsResponse {
+  enabled: boolean;
+  pm2: NodeAppsPM2Meta;
+  apps: NodeApp[];
+}

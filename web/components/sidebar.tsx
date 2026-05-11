@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Cpu, HardDrive, LayoutDashboard, ListTree, ScrollText, Settings, Container } from 'lucide-react';
+import { Activity, Cpu, HardDrive, LayoutDashboard, ListTree, ScrollText, Settings, Container, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { href: '/gpu', label: 'GPU', icon: Cpu },
   { href: '/processes', label: 'Processes', icon: Activity },
   { href: '/services', label: 'Services', icon: ListTree },
+  { href: '/node-apps', label: 'Node apps', icon: Package },
   { href: '/docker', label: 'Docker', icon: Container },
   { href: '/disks', label: 'Disks', icon: HardDrive },
   { href: '/logs', label: 'Logs', icon: ScrollText },

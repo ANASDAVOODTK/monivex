@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -194,8 +195,22 @@ func writeWS(c *websocket.Conn, v any) error {
 	return c.WriteMessage(websocket.TextMessage, b)
 }
 
+// dockerShellCmd returns the argv for an interactive shell inside the container.
+// query shell=auto|bash|sh (default auto): auto runs bash when /bin/bash or /usr/bin/bash exists, else sh.
+func dockerShellCmd(pref string) []string {
+	switch pref {
+	case "sh":
+		return []string{"/bin/sh"}
+	case "bash":
+		return []string{"/bin/sh", "-c", "[ -x /bin/bash ] && exec /bin/bash; [ -x /usr/bin/bash ] && exec /usr/bin/bash; echo 'bash not installed in this image' >&2; exit 127"}
+	default:
+		// Covers "auto", "", and unknown values.
+		return []string{"/bin/sh", "-c", "[ -x /bin/bash ] && exec /bin/bash; [ -x /usr/bin/bash ] && exec /usr/bin/bash; exec /bin/sh"}
+	}
+}
+
 // HandleDockerExec provides a WebSocket-based interactive shell into a container.
-// URL: /ws/docker/exec/{id}?token=...
+// URL: /ws/docker/exec/{id}?token=...&shell=auto|bash|sh
 // Client sends binary frames (stdin) and JSON frames for resize: {"type":"resize","cols":80,"rows":24}
 // Server sends binary frames (stdout+stderr).
 func (s *Server) HandleDockerExec(w http.ResponseWriter, r *http.Request) {
@@ -218,9 +233,12 @@ func (s *Server) HandleDockerExec(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Create exec instance
+	shell := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("shell")))
+	cmd := dockerShellCmd(shell)
+
+	// Create exec instance (see dockerShellCmd: auto prefers bash when present, falls back to sh).
 	execCfg := container.ExecOptions{
-		Cmd:          []string{"/bin/sh"},
+		Cmd:          cmd,
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,

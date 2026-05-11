@@ -38,4 +38,15 @@ export const api = {
   dockerStart: (id: string) => request<{ ok: boolean }>(`/docker/containers/${id}/start`, { method: 'POST' }),
   dockerStop: (id: string) => request<{ ok: boolean }>(`/docker/containers/${id}/stop`, { method: 'POST' }),
   dockerRestart: (id: string) => request<{ ok: boolean }>(`/docker/containers/${id}/restart`, { method: 'POST' }),
+  nodeApps: () => request<import('./types').NodeAppsResponse>('/node-apps'),
+  nodeAppCreate: (body: { script: string; name: string; cwd?: string }) =>
+    request<{ ok: boolean }>('/node-apps', { method: 'POST', body: JSON.stringify(body) }),
+  nodeAppStart: (pmId: number) =>
+    request<{ ok: boolean }>(`/node-apps/${pmId}/start`, { method: 'POST' }),
+  nodeAppStop: (pmId: number) =>
+    request<{ ok: boolean }>(`/node-apps/${pmId}/stop`, { method: 'POST' }),
+  nodeAppRestart: (pmId: number) =>
+    request<{ ok: boolean }>(`/node-apps/${pmId}/restart`, { method: 'POST' }),
+  nodeAppDelete: (pmId: number) =>
+    request<{ ok: boolean }>(`/node-apps/${pmId}/delete`, { method: 'POST' }),
 };

@@ -17,9 +17,12 @@ export default function DockerPage() {
   );
 }
 
+type ExecShell = 'auto' | 'bash' | 'sh';
+
 function Docker() {
   const containers = useMetrics((s) => s.current?.docker) ?? [];
   const [execContainer, setExecContainer] = useState<{ id: string; name: string } | null>(null);
+  const [execShell, setExecShell] = useState<ExecShell>('auto');
 
   if (!containers.length && !execContainer) {
     return (
@@ -40,11 +43,25 @@ function Docker() {
       {execContainer && (
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-bg-border bg-bg-subtle/60">
-            <div className="flex items-center gap-2 text-sm">
-              <Terminal className="size-4 text-accent" />
-              <span className="font-medium">Shell</span>
-              <span className="text-fg-muted">—</span>
-              <span className="text-fg-muted font-mono text-xs">{execContainer.name}</span>
+            <div className="flex flex-wrap items-center gap-2 text-sm min-w-0">
+              <Terminal className="size-4 text-accent shrink-0" />
+              <span className="font-medium shrink-0">Shell</span>
+              <span className="text-fg-muted shrink-0">—</span>
+              <span className="text-fg-muted font-mono text-xs truncate">{execContainer.name}</span>
+              <label className="ml-auto flex items-center gap-1.5 text-xs text-fg-muted shrink-0">
+                <span className="hidden sm:inline">Interpreter</span>
+                <select
+                  className="input py-1 px-2 text-xs font-mono min-w-[7rem]"
+                  value={execShell}
+                  onChange={(e) => setExecShell(e.target.value as ExecShell)}
+                  aria-label="Container shell"
+                  title="If bash never appears, try sh (Alpine). Auto picks bash when installed."
+                >
+                  <option value="auto">Auto (bash or sh)</option>
+                  <option value="bash">Bash</option>
+                  <option value="sh">sh only</option>
+                </select>
+              </label>
             </div>
             <button
               onClick={() => setExecContainer(null)}
@@ -55,7 +72,9 @@ function Docker() {
             </button>
           </div>
           <DockerExecTerminal
+            key={`${execContainer.id}-${execShell}`}
             containerId={execContainer.id}
+            shell={execShell}
             onClose={() => setExecContainer(null)}
           />
         </div>
@@ -66,7 +85,10 @@ function Docker() {
           <ContainerCard
             key={c.id}
             container={c}
-            onExec={() => setExecContainer({ id: c.id, name: c.name })}
+            onExec={() => {
+              setExecShell('auto');
+              setExecContainer({ id: c.id, name: c.name });
+            }}
           />
         ))}
       </div>

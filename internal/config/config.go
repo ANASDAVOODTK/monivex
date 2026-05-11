@@ -15,6 +15,7 @@ type Config struct {
 	Processes ProcessesConfig `yaml:"processes"`
 	Logs      LogsConfig      `yaml:"logs"`
 	Docker    DockerConfig    `yaml:"docker"`
+	NodeJS    NodeJSConfig    `yaml:"nodejs"`
 	GPU       GPUConfig       `yaml:"gpu"`
 }
 
@@ -85,6 +86,16 @@ type DockerConfig struct {
 	Socket  string `yaml:"socket"`
 }
 
+// NodeJSConfig controls PM2 integration for the Node apps UI.
+// server-monitor runs pm2 as the same OS user as the daemon; use that user's PM2_HOME.
+type NodeJSConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// PM2Path: absolute path to pm2 binary, or empty to use PATH.
+	PM2Path string `yaml:"pm2_path"`
+	// AllowedScriptPrefixes: absolute path prefixes for "Start app" in the UI. Empty disables starting new apps (list/stop/restart still works).
+	AllowedScriptPrefixes []string `yaml:"allowed_script_prefixes"`
+}
+
 type GPUConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Backend string `yaml:"backend"`
@@ -103,7 +114,11 @@ func Default() *Config {
 		Processes: ProcessesConfig{TopN: 50},
 		Logs:      LogsConfig{AllowedPaths: []string{}},
 		Docker:    DockerConfig{Enabled: true, Socket: "/var/run/docker.sock"},
-		GPU:       GPUConfig{Enabled: true, Backend: "auto"},
+		NodeJS: NodeJSConfig{
+			Enabled:               true,
+			AllowedScriptPrefixes: []string{}, // set in config.yaml before using "Start app"
+		},
+		GPU: GPUConfig{Enabled: true, Backend: "auto"},
 	}
 }
 
