@@ -3,14 +3,18 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"path/filepath"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/nxadm/tail"
 
 	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
+	"github.com/ANASDAVOODTK/server-monitor/internal/collectors"
 	"github.com/ANASDAVOODTK/server-monitor/internal/config"
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 )
@@ -25,13 +29,14 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	hub  *hub.Hub
-	cfg  *config.Config
-	auth *auth.Service
+	hub    *hub.Hub
+	cfg    *config.Config
+	auth   *auth.Service
+	docker *collectors.DockerCollector
 }
 
-func NewServer(h *hub.Hub, cfg *config.Config, a *auth.Service) *Server {
-	return &Server{hub: h, cfg: cfg, auth: a}
+func NewServer(h *hub.Hub, cfg *config.Config, a *auth.Service, docker *collectors.DockerCollector) *Server {
+	return &Server{hub: h, cfg: cfg, auth: a, docker: docker}
 }
 
 func (s *Server) checkAuth(r *http.Request) bool {
@@ -187,4 +192,114 @@ func writeWS(c *websocket.Conn, v any) error {
 		return err
 	}
 	return c.WriteMessage(websocket.TextMessage, b)
+}
+
+// HandleDockerExec provides a WebSocket-based interactive shell into a container.
+// URL: /ws/docker/exec/{id}?token=...
+// Client sends binary frames (stdin) and JSON frames for resize: {"type":"resize","cols":80,"rows":24}
+// Server sends binary frames (stdout+stderr).
+func (s *Server) HandleDockerExec(w http.ResponseWriter, r *http.Request) {
+	if !s.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	containerID := chi.URLParam(r, "id")
+	if containerID == "" {
+		http.Error(w, "missing container id", http.StatusBadRequest)
+		return
+	}
+
+	cli := s.docker.Client()
+	if cli == nil {
+		http.Error(w, "docker not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Create exec instance
+	execCfg := container.ExecOptions{
+		Cmd:          []string{"/bin/sh"},
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          true,
+	}
+	execID, err := cli.ContainerExecCreate(ctx, containerID, execCfg)
+	if err != nil {
+		http.Error(w, "exec create: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Attach to exec
+	hijack, err := cli.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{Tty: true})
+	if err != nil {
+		http.Error(w, "exec attach: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer hijack.Close()
+
+	// Upgrade to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	ctx2, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Container stdout → WebSocket
+	go func() {
+		defer cancel()
+		buf := make([]byte, 4096)
+		for {
+			n, err := hijack.Reader.Read(buf)
+			if n > 0 {
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if wErr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); wErr != nil {
+					return
+				}
+			}
+			if err != nil {
+				if err != io.EOF {
+					return
+				}
+				return
+			}
+		}
+	}()
+
+	// WebSocket → Container stdin (binary = stdin, text = control messages)
+	go func() {
+		defer cancel()
+		for {
+			msgType, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			switch msgType {
+			case websocket.BinaryMessage:
+				if _, err := hijack.Conn.Write(data); err != nil {
+					return
+				}
+			case websocket.TextMessage:
+				// Handle resize messages: {"type":"resize","cols":80,"rows":24}
+				var msg struct {
+					Type string `json:"type"`
+					Cols uint   `json:"cols"`
+					Rows uint   `json:"rows"`
+				}
+				if json.Unmarshal(data, &msg) == nil && msg.Type == "resize" {
+					_ = cli.ContainerExecResize(ctx, execID.ID, container.ResizeOptions{
+						Height: msg.Rows,
+						Width:  msg.Cols,
+					})
+				}
+			}
+		}
+	}()
+
+	<-ctx2.Done()
 }

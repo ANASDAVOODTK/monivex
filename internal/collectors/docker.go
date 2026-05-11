@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +36,45 @@ func NewDockerCollector(enabled bool, socket string) *DockerCollector {
 
 func (d *DockerCollector) Available() bool { return d.enabled }
 
+// Client returns the raw Docker client for advanced operations (e.g. exec).
+func (d *DockerCollector) Client() *client.Client { return d.cli }
+
 func (d *DockerCollector) Close() {
 	if d.cli != nil {
 		_ = d.cli.Close()
 	}
+}
+
+// StartContainer starts a stopped container.
+func (d *DockerCollector) StartContainer(ctx context.Context, id string) error {
+	if !d.enabled || d.cli == nil {
+		return fmt.Errorf("docker not available")
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return d.cli.ContainerStart(ctx2, id, container.StartOptions{})
+}
+
+// StopContainer gracefully stops a running container (10s grace period).
+func (d *DockerCollector) StopContainer(ctx context.Context, id string) error {
+	if !d.enabled || d.cli == nil {
+		return fmt.Errorf("docker not available")
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	timeout := 10 // seconds
+	return d.cli.ContainerStop(ctx2, id, container.StopOptions{Timeout: &timeout})
+}
+
+// RestartContainer restarts a container (10s grace period).
+func (d *DockerCollector) RestartContainer(ctx context.Context, id string) error {
+	if !d.enabled || d.cli == nil {
+		return fmt.Errorf("docker not available")
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	timeout := 10 // seconds
+	return d.cli.ContainerRestart(ctx2, id, container.StopOptions{Timeout: &timeout})
 }
 
 // statsJSON mirrors the parts of the Docker stats response we use, so we

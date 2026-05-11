@@ -33,7 +33,7 @@ func NewServer(cfg *config.Config, st *store.Store, a *auth.Service, h *hub.Hub,
 		store: st,
 		auth:  a,
 		hub:   h,
-		ws:    ws.NewServer(h, cfg, a),
+		ws:    ws.NewServer(h, cfg, a, h.Docker()),
 		ui:    uiFS,
 	}
 }
@@ -62,6 +62,9 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/processes", s.handleProcesses)
 			r.Get("/services", s.handleServices)
 			r.Get("/docker/containers", s.handleDocker)
+			r.Post("/docker/containers/{id}/start", s.handleDockerStart)
+			r.Post("/docker/containers/{id}/stop", s.handleDockerStop)
+			r.Post("/docker/containers/{id}/restart", s.handleDockerRestart)
 			r.Get("/history", s.handleHistory)
 			r.Get("/logs/sources", s.handleLogSources)
 		})
@@ -70,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	// WebSockets — auth checked inside the handler (token via cookie or ?token=)
 	r.Get("/ws/metrics", s.ws.HandleMetrics)
 	r.Get("/ws/logs", s.ws.HandleLogs)
+	r.Get("/ws/docker/exec/{id}", s.ws.HandleDockerExec)
 
 	// Static UI
 	if s.ui != nil {
@@ -204,6 +208,33 @@ func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, last.Docker)
+}
+
+func (s *Server) handleDockerStart(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.hub.Docker().StartContainer(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDockerStop(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.hub.Docker().StopContainer(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDockerRestart(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.hub.Docker().RestartContainer(r.Context(), id); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {

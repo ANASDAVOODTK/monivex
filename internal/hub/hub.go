@@ -45,6 +45,11 @@ func (h *Hub) Close() {
 	h.docker.Close()
 }
 
+// Docker returns the underlying Docker collector for management operations.
+func (h *Hub) Docker() *collectors.DockerCollector {
+	return h.docker
+}
+
 func (h *Hub) Last() *metrics.Snapshot {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
