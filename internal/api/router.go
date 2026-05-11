@@ -43,9 +43,9 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(middleware.Timeout(30 * time.Second))
 		// Public
 		r.Get("/health", s.handleHealth)
 		r.Get("/setup/status", s.handleSetupStatus)
