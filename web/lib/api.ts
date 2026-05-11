@@ -35,4 +35,7 @@ export const api = {
   snapshot: () => request<import('./types').Snapshot>('/snapshot'),
   history: (range: string) => request<any[]>(`/history?range=${encodeURIComponent(range)}`),
   logSources: () => request<string[]>('/logs/sources'),
+  dockerStart: (id: string) => request<{ ok: boolean }>(`/docker/containers/${id}/start`, { method: 'POST' }),
+  dockerStop: (id: string) => request<{ ok: boolean }>(`/docker/containers/${id}/stop`, { method: 'POST' }),
+  dockerRestart: (id: string) => request<{ ok: boolean }>(`/docker/containers/${id}/restart`, { method: 'POST' }),
 };
