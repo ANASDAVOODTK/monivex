@@ -11,11 +11,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/yourname/server-monitor/internal/auth"
-	"github.com/yourname/server-monitor/internal/config"
-	"github.com/yourname/server-monitor/internal/hub"
-	"github.com/yourname/server-monitor/internal/store"
-	"github.com/yourname/server-monitor/internal/ws"
+	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
+	"github.com/ANASDAVOODTK/server-monitor/internal/config"
+	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
+	"github.com/ANASDAVOODTK/server-monitor/internal/store"
+	"github.com/ANASDAVOODTK/server-monitor/internal/ws"
 )
 
 type Server struct {

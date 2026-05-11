@@ -16,7 +16,7 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
 
-	"github.com/yourname/server-monitor/internal/metrics"
+	"github.com/ANASDAVOODTK/server-monitor/internal/metrics"
 )
 
 type SystemCollector struct {

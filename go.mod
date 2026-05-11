@@ -1,4 +1,4 @@
-module github.com/yourname/server-monitor
+module github.com/ANASDAVOODTK/server-monitor
 
 go 1.25.0
 

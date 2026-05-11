@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yourname/server-monitor/internal/metrics"
+	"github.com/ANASDAVOODTK/server-monitor/internal/metrics"
 )
 
 // GPUCollector reads NVIDIA GPU stats by parsing `nvidia-smi --query-gpu`.

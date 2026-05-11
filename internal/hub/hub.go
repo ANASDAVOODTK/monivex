@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourname/server-monitor/internal/collectors"
-	"github.com/yourname/server-monitor/internal/config"
-	"github.com/yourname/server-monitor/internal/metrics"
-	"github.com/yourname/server-monitor/internal/store"
+	"github.com/ANASDAVOODTK/server-monitor/internal/collectors"
+	"github.com/ANASDAVOODTK/server-monitor/internal/config"
+	"github.com/ANASDAVOODTK/server-monitor/internal/metrics"
+	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 )
 
 type Hub struct {

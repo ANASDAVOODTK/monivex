@@ -12,11 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourname/server-monitor/internal/api"
-	"github.com/yourname/server-monitor/internal/auth"
-	"github.com/yourname/server-monitor/internal/config"
-	"github.com/yourname/server-monitor/internal/hub"
-	"github.com/yourname/server-monitor/internal/store"
+	"github.com/ANASDAVOODTK/server-monitor/internal/api"
+	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
+	"github.com/ANASDAVOODTK/server-monitor/internal/config"
+	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
+	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 )
 
 // uiFromMain is wired by embed.go in the same package.

@@ -10,9 +10,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/nxadm/tail"
 
-	"github.com/yourname/server-monitor/internal/auth"
-	"github.com/yourname/server-monitor/internal/config"
-	"github.com/yourname/server-monitor/internal/hub"
+	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
+	"github.com/ANASDAVOODTK/server-monitor/internal/config"
+	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 )
 
 var upgrader = websocket.Upgrader{
