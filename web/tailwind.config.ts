@@ -7,23 +7,25 @@ const config: Config = {
     extend: {
       colors: {
         bg: {
-          DEFAULT: '#0b0d10',
-          subtle: '#11141a',
-          panel: '#151921',
-          border: '#202632',
+          DEFAULT: '#08090d',
+          subtle: '#10151b',
+          panel: '#12171d',
+          border: '#25303a',
         },
         accent: {
-          DEFAULT: '#6366f1',
+          DEFAULT: '#2dd4bf',
           green: '#10b981',
           amber: '#f59e0b',
-          red: '#ef4444',
-          cyan: '#06b6d4',
-          violet: '#8b5cf6',
+          red: '#f43f5e',
+          cyan: '#38bdf8',
+          violet: '#a78bfa',
+          blue: '#60a5fa',
+          pink: '#fb7185',
         },
         fg: {
-          DEFAULT: '#e6e8ee',
-          muted: '#8b94a7',
-          subtle: '#5d667a',
+          DEFAULT: '#edf2f7',
+          muted: '#98a4b3',
+          subtle: '#647181',
         },
       },
       fontFamily: {
@@ -31,7 +33,8 @@ const config: Config = {
         mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       boxShadow: {
-        card: '0 1px 0 0 rgba(255,255,255,0.04) inset, 0 0 0 1px rgba(255,255,255,0.04)',
+        card: '0 1px 0 0 rgba(255,255,255,0.06) inset, 0 18px 60px rgba(0,0,0,0.28)',
+        glow: '0 0 28px rgba(45,212,191,0.22)',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',

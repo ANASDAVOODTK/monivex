@@ -2,14 +2,12 @@
 
 import { useEffect, useRef } from 'react';
 
-// Dynamically imported to avoid SSR issues with xterm
 export default function DockerExecTerminal({
   containerId,
   shell = 'auto',
   onClose,
 }: {
   containerId: string;
-  /** Passed to server: auto prefers bash when the image has it; sh for minimal images. */
   shell?: 'auto' | 'bash' | 'sh';
   onClose: () => void;
 }) {
@@ -20,17 +18,15 @@ export default function DockerExecTerminal({
   useEffect(() => {
     if (initRef.current || !termRef.current) return;
     initRef.current = true;
+    const element = termRef.current;
 
     let terminal: any;
     let fitAddon: any;
     let ws: WebSocket;
 
     async function init() {
-      // Dynamic import to avoid SSR
       const { Terminal } = await import('@xterm/xterm');
       const { FitAddon } = await import('@xterm/addon-fit');
-
-      // Import CSS
       await import('@xterm/xterm/css/xterm.css');
 
       terminal = new Terminal({
@@ -38,26 +34,26 @@ export default function DockerExecTerminal({
         fontSize: 13,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
         theme: {
-          background: '#0b0d10',
-          foreground: '#e6e8ee',
-          cursor: '#6366f1',
-          cursorAccent: '#0b0d10',
-          selectionBackground: 'rgba(99, 102, 241, 0.35)',
-          black: '#0b0d10',
-          red: '#ef4444',
+          background: '#08090d',
+          foreground: '#edf2f7',
+          cursor: '#2dd4bf',
+          cursorAccent: '#08090d',
+          selectionBackground: 'rgba(45, 212, 191, 0.28)',
+          black: '#08090d',
+          red: '#f43f5e',
           green: '#10b981',
           yellow: '#f59e0b',
-          blue: '#6366f1',
-          magenta: '#8b5cf6',
-          cyan: '#06b6d4',
-          white: '#e6e8ee',
-          brightBlack: '#5d667a',
-          brightRed: '#f87171',
+          blue: '#60a5fa',
+          magenta: '#a78bfa',
+          cyan: '#38bdf8',
+          white: '#edf2f7',
+          brightBlack: '#647181',
+          brightRed: '#fb7185',
           brightGreen: '#34d399',
           brightYellow: '#fbbf24',
-          brightBlue: '#818cf8',
-          brightMagenta: '#a78bfa',
-          brightCyan: '#22d3ee',
+          brightBlue: '#93c5fd',
+          brightMagenta: '#c4b5fd',
+          brightCyan: '#67e8f9',
           brightWhite: '#ffffff',
         },
         scrollback: 5000,
@@ -66,12 +62,11 @@ export default function DockerExecTerminal({
 
       fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
-      terminal.open(termRef.current!);
+      terminal.open(element);
       fitAddon.fit();
 
-      terminal.writeln('\x1b[1;34m● Connecting to container...\x1b[0m');
+      terminal.writeln('\x1b[1;36m* Connecting to container...\x1b[0m');
 
-      // Connect WebSocket
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const q = new URLSearchParams({ shell });
       const url = `${proto}://${window.location.host}/ws/docker/exec/${encodeURIComponent(containerId)}?${q}`;
@@ -80,8 +75,7 @@ export default function DockerExecTerminal({
       wsRef.current = ws;
 
       ws.onopen = () => {
-        terminal.writeln('\x1b[1;32m● Connected.\x1b[0m\r\n');
-        // Send initial resize
+        terminal.writeln('\x1b[1;32m* Connected.\x1b[0m\r\n');
         const dims = fitAddon.proposeDimensions();
         if (dims) {
           ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
@@ -97,14 +91,13 @@ export default function DockerExecTerminal({
       };
 
       ws.onerror = () => {
-        terminal.writeln('\r\n\x1b[1;31m● Connection error.\x1b[0m');
+        terminal.writeln('\r\n\x1b[1;31m* Connection error.\x1b[0m');
       };
 
       ws.onclose = () => {
-        terminal.writeln('\r\n\x1b[1;33m● Session ended.\x1b[0m');
+        terminal.writeln('\r\n\x1b[1;33m* Session ended.\x1b[0m');
       };
 
-      // Terminal input → WebSocket as binary
       terminal.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
           const encoder = new TextEncoder();
@@ -112,7 +105,6 @@ export default function DockerExecTerminal({
         }
       });
 
-      // Handle resize
       const resizeObserver = new ResizeObserver(() => {
         fitAddon.fit();
         if (ws.readyState === WebSocket.OPEN) {
@@ -122,12 +114,11 @@ export default function DockerExecTerminal({
           }
         }
       });
-      resizeObserver.observe(termRef.current!);
+      resizeObserver.observe(element);
 
       terminal.focus();
 
-      // Store cleanup ref
-      (termRef.current as any)._cleanup = () => {
+      (element as any)._cleanup = () => {
         resizeObserver.disconnect();
         ws.close();
         terminal.dispose();
@@ -137,8 +128,8 @@ export default function DockerExecTerminal({
     init();
 
     return () => {
-      if (termRef.current && (termRef.current as any)._cleanup) {
-        (termRef.current as any)._cleanup();
+      if ((element as any)._cleanup) {
+        (element as any)._cleanup();
       }
     };
   }, [containerId, shell]);
@@ -147,7 +138,7 @@ export default function DockerExecTerminal({
     <div
       ref={termRef}
       className="w-full"
-      style={{ height: '400px', padding: '8px', background: '#0b0d10' }}
+      style={{ height: '420px', padding: '10px', background: '#08090d' }}
     />
   );
 }

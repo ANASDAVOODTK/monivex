@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AuthShell } from '@/components/auth-shell';
+import { Notice } from '@/components/ui';
 import { api } from '@/lib/api';
+import { UserPlus } from 'lucide-react';
 
 export default function SetupPage() {
   const router = useRouter();
@@ -30,66 +33,66 @@ export default function SetupPage() {
     try {
       await api.setup(token.trim(), username.trim(), password);
       router.replace('/');
-    } catch (err: any) {
-      setError(err.message || 'Setup failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-bg">
-      <div className="w-full max-w-md">
-        <div className="text-lg font-semibold text-center mb-2">First-run setup</div>
-        <p className="text-xs text-fg-muted text-center mb-5">
-          A one-time setup token was printed to the server console when the binary started.
-          Paste it below to create the admin account.
-        </p>
-        <form onSubmit={onSubmit} className="card card-pad space-y-4">
-          <div>
-            <label className="text-xs text-fg-muted uppercase tracking-wider">Setup token</label>
-            <input
-              autoFocus
-              className="input mt-1 font-mono"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              required
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <label className="text-xs text-fg-muted uppercase tracking-wider">Username</label>
-              <input className="input mt-1" value={username} onChange={(e) => setUsername(e.target.value)} required />
-            </div>
-            <div>
-              <label className="text-xs text-fg-muted uppercase tracking-wider">Password</label>
-              <input
-                type="password"
-                className="input mt-1"
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs text-fg-muted uppercase tracking-wider">Confirm password</label>
-              <input
-                type="password"
-                className="input mt-1"
-                minLength={8}
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-          {error && <div className="text-xs text-accent-red">{error}</div>}
-          <button type="submit" className="btn-primary w-full" disabled={loading}>
-            {loading ? 'Creating account...' : 'Create admin account'}
-          </button>
-        </form>
-      </div>
-    </div>
+    <AuthShell
+      title="First-run setup"
+      subtitle="Use the setup token from the server console to create the admin account."
+    >
+      <form onSubmit={onSubmit} className="card card-pad space-y-4">
+        <Field label="Setup token">
+          <input
+            autoFocus
+            className="input font-mono"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Username">
+          <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} required />
+        </Field>
+        <Field label="Password">
+          <input
+            type="password"
+            className="input"
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Confirm password">
+          <input
+            type="password"
+            className="input"
+            minLength={8}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+          />
+        </Field>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <button type="submit" className="btn-primary w-full" disabled={loading}>
+          <UserPlus className="size-4" />
+          {loading ? 'Creating account...' : 'Create admin account'}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-fg-muted">{label}</span>
+      {children}
+    </label>
   );
 }

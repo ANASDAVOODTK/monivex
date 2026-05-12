@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
+import { EmptyState, Notice, PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { NodeApp, NodeAppsResponse } from '@/lib/types';
-import { formatBytes } from '@/lib/utils';
-import { Loader2, Play, RefreshCw, RotateCcw, Square, Trash2, Plus } from 'lucide-react';
+import { formatBytes, formatDuration } from '@/lib/utils';
+import { Loader2, Package, Play, Plus, RefreshCw, RotateCcw, Square, Trash2 } from 'lucide-react';
 
 export default function NodeAppsPage() {
   return (
@@ -37,7 +38,7 @@ function NodeAppsPanel() {
     load();
   }, [load]);
 
-  const run = async (key: string, fn: () => Promise<void>) => {
+  const run = async (key: string, fn: () => Promise<unknown>) => {
     setActionId(key);
     try {
       await fn();
@@ -51,101 +52,101 @@ function NodeAppsPanel() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24 text-fg-muted gap-2">
-        <Loader2 className="size-5 animate-spin" />
-        Loading…
+      <div className="grid min-h-[50vh] place-items-center text-fg-muted">
+        <div className="glass-panel flex items-center gap-2 px-4 py-3 text-sm">
+          <Loader2 className="size-4 animate-spin text-accent" />
+          Loading PM2 inventory
+        </div>
       </div>
     );
   }
 
   if (!data?.enabled) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold">Node apps (PM2)</h1>
-        <div className="card card-pad text-sm text-fg-muted">
-          PM2 integration is disabled. Set <span className="font-mono text-xs">nodejs.enabled: true</span> in{' '}
-          <span className="font-mono text-xs">config.yaml</span> on the server.
-        </div>
-      </div>
+      <EmptyState
+        title="PM2 integration disabled"
+        message={<span>Enable <span className="kbd">nodejs.enabled</span> in <span className="kbd">config.yaml</span>.</span>}
+        icon={<Package className="size-5" />}
+      />
     );
   }
 
   const pm2 = data.pm2;
   const apps = data.apps ?? [];
+  const online = apps.filter((a) => a.status === 'online').length;
+  const cpu = apps.reduce((sum, a) => sum + a.cpu, 0);
+  const mem = apps.reduce((sum, a) => sum + a.memory, 0);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Node apps (PM2)</h1>
-          <p className="text-sm text-fg-muted">
-            {pm2.available
-              ? `PM2 ${pm2.version ?? ''} · manage processes on the host where server-monitor runs (same OS user).`
-              : 'PM2 is not available on PATH for that user.'}
-          </p>
-        </div>
-        <button type="button" onClick={() => load()} className="btn-secondary inline-flex items-center gap-2 text-sm shrink-0">
-          <RefreshCw className="size-4" />
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Node.js"
+        title="PM2 applications"
+        description={pm2.available ? 'Manage host processes running under the server-monitor user.' : 'PM2 is not available on PATH for this service user.'}
+        actions={
+          <button type="button" onClick={() => load()} className="btn-secondary">
+            <RefreshCw className="size-4" />
+            Refresh
+          </button>
+        }
+        stats={
+          <>
+            <SummaryChip label="Apps" value={apps.length.toString()} />
+            <SummaryChip label="Online" value={online.toString()} tone="green" />
+            <SummaryChip label="CPU" value={`${cpu.toFixed(1)}%`} />
+            <SummaryChip label="Memory" value={formatBytes(mem)} />
+            {pm2.version && <SummaryChip label="PM2" value={pm2.version} />}
+          </>
+        }
+      />
 
-      {err && (
-        <div className="text-sm text-red-400 bg-red-500/10 rounded-md px-3 py-2 border border-red-500/20">{err}</div>
-      )}
+      {err && <Notice tone="danger">{err}</Notice>}
 
       {!pm2.available && (
-        <div className="card card-pad text-sm text-fg-muted space-y-2">
-          <p>{pm2.error || 'PM2 not detected.'}</p>
-          <p className="text-xs">
-            Install Node.js and PM2 on the server, run <span className="font-mono">pm2 save</span> under the same user as
-            server-monitor, or set <span className="font-mono">nodejs.pm2_path</span> in config.
-          </p>
-        </div>
+        <Notice tone="warning">
+          {pm2.error || 'PM2 was not detected for this runtime user.'}
+        </Notice>
       )}
 
-      {pm2.list_error && (
-        <div className="text-sm text-amber-300 bg-amber-500/10 rounded-md px-3 py-2 border border-amber-500/20">
-          List: {pm2.list_error}
-        </div>
-      )}
+      {pm2.list_error && <Notice tone="warning">List: {pm2.list_error}</Notice>}
 
       {pm2.available && pm2.can_start_new && <StartAppForm onCreated={() => load()} onError={setErr} />}
 
       {pm2.available && pm2.can_start_new === false && (
-        <div className="text-xs text-fg-muted border border-bg-border rounded-md px-3 py-2 bg-bg-subtle/30">
-          Starting new apps from the UI requires <span className="font-mono">nodejs.allowed_script_prefixes</span> in{' '}
-          <span className="font-mono">config.yaml</span> (for example <span className="font-mono">/opt/apps</span>). You
-          can still stop, restart, and delete existing processes.
-        </div>
+        <Notice>
+          Starting new apps requires <span className="kbd">nodejs.allowed_script_prefixes</span> in <span className="kbd">config.yaml</span>.
+        </Notice>
       )}
 
       {pm2.available && (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-subtle/40 text-xs text-fg-muted uppercase tracking-wider">
-              <tr>
-                <th className="text-left px-3 py-2.5">Name</th>
-                <th className="text-left px-3 py-2.5">Status</th>
-                <th className="text-left px-3 py-2.5">CPU</th>
-                <th className="text-left px-3 py-2.5">Mem</th>
-                <th className="text-left px-3 py-2.5 hidden lg:table-cell">Script</th>
-                <th className="text-right px-3 py-2.5">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {apps.map((a) => (
-                <AppRow key={a.pm_id} app={a} busy={actionId} onRun={run} />
-              ))}
-              {apps.length === 0 && (
+        <div className="table-wrap">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="table-head">
                 <tr>
-                  <td colSpan={6} className="text-center py-10 text-fg-muted">
-                    No PM2 processes. Use <span className="font-mono">pm2 start</span> or the form above (if enabled).
-                  </td>
+                  <th className="px-4 py-3 text-left">Name</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">CPU</th>
+                  <th className="px-4 py-3 text-left">Memory</th>
+                  <th className="hidden px-4 py-3 text-left lg:table-cell">Script</th>
+                  <th className="px-4 py-3 text-left">Uptime</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {apps.map((a) => (
+                  <AppRow key={a.pm_id} app={a} busy={actionId} onRun={run} />
+                ))}
+                {apps.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center text-sm text-fg-muted">
+                      No PM2 processes.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
@@ -159,26 +160,32 @@ function AppRow({
 }: {
   app: NodeApp;
   busy: string | null;
-  onRun: (key: string, fn: () => Promise<void>) => void;
+  onRun: (key: string, fn: () => Promise<unknown>) => void;
 }) {
   const b = (suffix: string) => busy === `${a.pm_id}-${suffix}`;
   const online = a.status === 'online';
 
   return (
-    <tr className="border-t border-bg-border hover:bg-bg-subtle/30">
-      <td className="px-3 py-2">
+    <tr className="table-row">
+      <td className="px-4 py-3">
         <div className="font-medium">{a.name}</div>
-        <div className="text-[10px] text-fg-subtle font-mono">pm_id {a.pm_id}</div>
+        <div className="mt-1 font-mono text-[10px] text-fg-subtle">pm_id {a.pm_id}</div>
       </td>
-      <td className="px-3 py-2">
-        <StatusBadge status={a.status} />
+      <td className="px-4 py-3">
+        <StatusBadge state={a.status} />
       </td>
-      <td className="px-3 py-2 tabular-nums">{a.cpu.toFixed(1)}%</td>
-      <td className="px-3 py-2 tabular-nums">{formatBytes(a.memory)}</td>
-      <td className="px-3 py-2 text-fg-muted text-xs font-mono truncate max-w-[240px] hidden lg:table-cell" title={a.script}>
+      <td className="px-4 py-3 tabular-nums">
+        <div className="flex max-w-36 items-center gap-3">
+          <span className="w-12 text-xs">{a.cpu.toFixed(1)}%</span>
+          <ProgressBar value={a.cpu} tone={a.cpu > 75 ? 'rose' : a.cpu > 45 ? 'amber' : 'teal'} className="h-1.5 flex-1" />
+        </div>
+      </td>
+      <td className="px-4 py-3 tabular-nums">{formatBytes(a.memory)}</td>
+      <td className="hidden max-w-[300px] truncate px-4 py-3 font-mono text-xs text-fg-muted lg:table-cell" title={a.script}>
         {a.script}
       </td>
-      <td className="px-3 py-2 text-right">
+      <td className="px-4 py-3 text-fg-muted">{a.uptime_ms ? formatDuration(Math.floor(a.uptime_ms / 1000)) : '-'}</td>
+      <td className="px-4 py-3 text-right">
         <div className="inline-flex flex-wrap justify-end gap-1">
           {!online && (
             <MiniBtn
@@ -238,28 +245,15 @@ function MiniBtn({
       title={title}
       disabled={loading}
       onClick={onClick}
-      className={`p-1.5 rounded-md border text-xs transition-colors disabled:opacity-50 ${
+      className={`rounded-lg border p-1.5 text-xs transition-colors disabled:opacity-50 ${
         danger
-          ? 'border-red-500/30 text-red-300 hover:bg-red-500/10'
-          : 'border-bg-border text-fg-muted hover:text-fg hover:bg-bg-subtle'
+          ? 'border-rose-400/30 text-rose-300 hover:bg-rose-400/10'
+          : 'border-bg-border text-fg-muted hover:bg-white/[0.06] hover:text-fg'
       }`}
     >
       {loading ? <Loader2 className="size-3.5 animate-spin" /> : children}
     </button>
   );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    online: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
-    stopped: 'bg-bg-subtle text-fg-muted border border-bg-border',
-    stopping: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-    launching: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-    errored: 'bg-red-500/15 text-red-300 border border-red-500/30',
-    one_launch_status: 'bg-bg-subtle text-fg-muted border border-bg-border',
-  };
-  const cls = map[status] || 'bg-bg-subtle text-fg-muted border border-bg-border';
-  return <span className={`badge ${cls}`}>{status}</span>;
 }
 
 function StartAppForm({ onCreated, onError }: { onCreated: () => void; onError: (m: string | null) => void }) {
@@ -290,31 +284,56 @@ function StartAppForm({ onCreated, onError }: { onCreated: () => void; onError: 
   };
 
   return (
-    <div className="card card-pad">
-      <div className="flex items-center gap-2 text-sm font-medium mb-3">
+    <form onSubmit={submit} className="card card-pad space-y-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
         <Plus className="size-4 text-accent" />
         Start app
       </div>
-      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="sm:col-span-2">
-          <label className="block text-xs text-fg-muted mb-1">Script (absolute path)</label>
-          <input className="input w-full font-mono text-xs" value={script} onChange={(e) => setScript(e.target.value)} placeholder="/opt/myapp/server.js" required />
-        </div>
-        <div>
-          <label className="block text-xs text-fg-muted mb-1">PM2 name</label>
-          <input className="input w-full font-mono text-xs" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-api" required />
-        </div>
-        <div>
-          <label className="block text-xs text-fg-muted mb-1">Working directory (optional)</label>
-          <input className="input w-full font-mono text-xs" value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="/opt/myapp" />
-        </div>
-        <div className="sm:col-span-2 lg:col-span-4 flex justify-end">
-          <button type="submit" disabled={loading} className="btn-primary text-sm inline-flex items-center gap-2">
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-            pm2 start
-          </button>
-        </div>
-      </form>
-    </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Field label="Script" className="sm:col-span-2">
+          <input className="input font-mono text-xs" value={script} onChange={(e) => setScript(e.target.value)} placeholder="/opt/myapp/server.js" required />
+        </Field>
+        <Field label="PM2 name">
+          <input className="input font-mono text-xs" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-api" required />
+        </Field>
+        <Field label="Working directory">
+          <input className="input font-mono text-xs" value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="/opt/myapp" />
+        </Field>
+      </div>
+      <div className="flex justify-end">
+        <button type="submit" disabled={loading} className="btn-primary">
+          {loading ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+          pm2 start
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Field({ label, className = '', children }: { label: string; className?: string; children: ReactNode }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1 block text-xs text-fg-muted">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function SummaryChip({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'green';
+}) {
+  const cls = tone === 'green' ? 'border-emerald-300/25 bg-emerald-400/10' : 'border-white/10 bg-white/[0.04]';
+
+  return (
+    <span className={`rounded-full border px-3 py-1.5 text-xs ${cls}`}>
+      <span className="text-fg-muted">{label}</span>
+      <span className="ml-2 font-medium text-fg">{value}</span>
+    </span>
   );
 }

@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AuthShell } from '@/components/auth-shell';
+import { Notice } from '@/components/ui';
 import { api } from '@/lib/api';
-import { Activity } from 'lucide-react';
+import { LogIn } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,49 +27,52 @@ export default function LoginPage() {
     try {
       await api.login(username, password);
       router.replace('/');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-bg">
-      <div className="w-full max-w-sm">
-        <div className="flex items-center justify-center mb-6 gap-2">
-          <div className="size-9 rounded-md bg-gradient-to-br from-accent to-accent-violet flex items-center justify-center">
-            <Activity className="size-5 text-white" />
-          </div>
-          <div className="text-lg font-semibold">Server Monitor</div>
-        </div>
-        <form onSubmit={onSubmit} className="card card-pad space-y-4">
-          <div>
-            <label className="text-xs text-fg-muted uppercase tracking-wider">Username</label>
-            <input
-              autoFocus
-              className="input mt-1"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="text-xs text-fg-muted uppercase tracking-wider">Password</label>
-            <input
-              type="password"
-              className="input mt-1"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          {error && <div className="text-xs text-accent-red">{error}</div>}
-          <button type="submit" className="btn-primary w-full" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-        </form>
-      </div>
-    </div>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to continue to your live server console."
+    >
+      <form onSubmit={onSubmit} className="card card-pad space-y-4">
+        <Field label="Username">
+          <input
+            autoFocus
+            className="input"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Password">
+          <input
+            type="password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </Field>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <button type="submit" className="btn-primary w-full" disabled={loading}>
+          <LogIn className="size-4" />
+          {loading ? 'Signing in...' : 'Sign in'}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-fg-muted">{label}</span>
+      {children}
+    </label>
   );
 }

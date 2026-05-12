@@ -13,19 +13,19 @@ interface Props {
 }
 
 const accentMap: Record<NonNullable<Props['accent']>, string> = {
-  indigo: 'from-indigo-500/40 to-indigo-500/0 text-indigo-300',
+  indigo: 'from-teal-400/25 to-teal-400/0 text-teal-300',
   green: 'from-emerald-500/40 to-emerald-500/0 text-emerald-300',
   amber: 'from-amber-500/40 to-amber-500/0 text-amber-300',
-  red: 'from-red-500/40 to-red-500/0 text-red-300',
+  red: 'from-rose-500/40 to-rose-500/0 text-rose-300',
   cyan: 'from-cyan-500/40 to-cyan-500/0 text-cyan-300',
   violet: 'from-violet-500/40 to-violet-500/0 text-violet-300',
 };
 
 const barMap: Record<NonNullable<Props['accent']>, string> = {
-  indigo: 'bg-indigo-500',
+  indigo: 'bg-teal-400',
   green: 'bg-emerald-500',
   amber: 'bg-amber-500',
-  red: 'bg-red-500',
+  red: 'bg-rose-500',
   cyan: 'bg-cyan-500',
   violet: 'bg-violet-500',
 };

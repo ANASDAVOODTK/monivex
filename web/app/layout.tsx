@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Server Monitor',
-  description: 'Real-time server monitoring dashboard',
+  description: 'Premium real-time server operations dashboard',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

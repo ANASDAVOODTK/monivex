@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
+import { EmptyState, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
 import { openLogSocket } from '@/lib/ws';
-import { Pause, Play, Trash2 } from 'lucide-react';
+import { FileText, Pause, Play, Search, Trash2 } from 'lucide-react';
 
 export default function LogsPage() {
   return (
@@ -25,7 +26,9 @@ function Logs() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   useEffect(() => {
     api.logSources().then(setSources).catch(() => setSources([]));
@@ -49,7 +52,9 @@ function Logs() {
       },
     );
     wsRef.current = ws;
-    return () => { ws.close(); };
+    return () => {
+      ws.close();
+    };
   }, [selected]);
 
   useEffect(() => {
@@ -69,58 +74,99 @@ function Logs() {
     : lines;
 
   return (
-    <div className="space-y-4 h-full flex flex-col">
-      <div>
-        <h1 className="text-xl font-semibold">Logs</h1>
-        <p className="text-sm text-fg-muted">Tail whitelisted log files in real time.</p>
-      </div>
+    <div className="flex h-full min-h-[calc(100vh-8rem)] flex-col space-y-6">
+      <PageHeader
+        eyebrow="Log tail"
+        title="Logs"
+        description="Stream configured files with local filtering and pause control."
+        stats={
+          <>
+            <SummaryChip label="Sources" value={sources.length.toString()} />
+            <SummaryChip label="Lines" value={filtered.length.toString()} />
+            <SummaryChip label="Mode" value={paused ? 'Paused' : 'Live'} tone={paused ? 'amber' : 'green'} />
+          </>
+        }
+      />
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="grid gap-3 lg:grid-cols-[minmax(240px,420px)_1fr_auto_auto]">
         <select
-          className="input max-w-md"
+          className="input"
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
         >
-          <option value="">Select a log file...</option>
+          <option value="">Select a log file</option>
           {sources.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
-        <input
-          className="input flex-1 max-w-sm"
-          placeholder="Filter lines (substring)"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <button onClick={() => setPaused((p) => !p)} className="btn-ghost">
-          {paused ? <><Play className="size-3.5" /> Resume</> : <><Pause className="size-3.5" /> Pause</>}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-fg-subtle" />
+          <input
+            className="input pl-8"
+            placeholder="Filter lines"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+        <button onClick={() => setPaused((p) => !p)} className="btn-secondary">
+          {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+          {paused ? 'Resume' : 'Pause'}
         </button>
         <button onClick={() => setLines([])} className="btn-ghost">
-          <Trash2 className="size-3.5" /> Clear
+          <Trash2 className="size-4" />
+          Clear
         </button>
-        <div className="text-xs text-fg-muted ml-auto tabular-nums">{filtered.length} lines</div>
       </div>
 
       {sources.length === 0 && (
-        <div className="card card-pad text-center text-sm text-fg-muted">
-          No log sources configured. Add paths to <span className="kbd">logs.allowed_paths</span> in <span className="kbd">config.yaml</span>.
-        </div>
+        <EmptyState
+          title="No log sources"
+          message={<span>Add allowed paths in <span className="kbd">config.yaml</span>.</span>}
+          icon={<FileText className="size-5" />}
+        />
       )}
 
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="card flex-1 overflow-y-auto font-mono text-xs leading-relaxed p-3 min-h-[400px]"
+        className="card min-h-[420px] flex-1 overflow-y-auto bg-[#08090d] p-4 font-mono text-xs leading-relaxed shadow-card"
       >
         {filtered.map((l, i) => (
-          <div key={i} className="whitespace-pre-wrap break-all hover:bg-bg-subtle/30 -mx-1 px-1">
+          <div key={i} className="whitespace-pre-wrap break-all rounded px-2 py-0.5 text-fg-muted hover:bg-white/[0.04] hover:text-fg">
             {l}
           </div>
         ))}
         {filtered.length === 0 && selected && (
-          <div className="text-fg-subtle">Waiting for output...</div>
+          <div className="p-2 text-fg-subtle">Waiting for output...</div>
+        )}
+        {!selected && sources.length > 0 && (
+          <div className="p-2 text-fg-subtle">Select a source to begin streaming.</div>
         )}
       </div>
     </div>
+  );
+}
+
+function SummaryChip({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'green' | 'amber';
+}) {
+  const cls =
+    tone === 'green'
+      ? 'border-emerald-300/25 bg-emerald-400/10'
+      : tone === 'amber'
+        ? 'border-amber-300/25 bg-amber-400/10'
+        : 'border-white/10 bg-white/[0.04]';
+
+  return (
+    <span className={`rounded-full border px-3 py-1.5 text-xs ${cls}`}>
+      <span className="text-fg-muted">{label}</span>
+      <span className="ml-2 font-medium text-fg">{value}</span>
+    </span>
   );
 }
