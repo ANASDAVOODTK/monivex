@@ -7,8 +7,9 @@ import { useMetrics } from '@/lib/store';
 import { api } from '@/lib/api';
 import { formatBytes, formatPct } from '@/lib/utils';
 import type { Container } from '@/lib/types';
-import { Container as ContainerIcon, Loader2, MoreVertical, Play, RotateCcw, Square, Terminal, X } from 'lucide-react';
+import { Container as ContainerIcon, Loader2, Logs, MoreVertical, Play, RotateCcw, Square, Terminal, X } from 'lucide-react';
 import DockerExecTerminal from './terminal';
+import DockerLogsTerminal from './logs-terminal';
 
 export default function DockerPage() {
   return (
@@ -23,9 +24,10 @@ type ExecShell = 'auto' | 'bash' | 'sh';
 function Docker() {
   const containers = useMetrics((s) => s.current?.docker) ?? [];
   const [execContainer, setExecContainer] = useState<{ id: string; name: string } | null>(null);
+  const [logsContainer, setLogsContainer] = useState<{ id: string; name: string } | null>(null);
   const [execShell, setExecShell] = useState<ExecShell>('auto');
 
-  if (!containers.length && !execContainer) {
+  if (!containers.length && !execContainer && !logsContainer) {
     return (
       <EmptyState
         title="No containers"
@@ -99,14 +101,42 @@ function Docker() {
         </div>
       )}
 
+      {logsContainer && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-bg-border bg-white/[0.035] px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2 text-sm">
+              <Logs className="size-4 shrink-0 text-accent" />
+              <span className="font-medium">Live logs</span>
+              <span className="truncate font-mono text-xs text-fg-muted">{logsContainer.name}</span>
+            </div>
+            <button
+              onClick={() => setLogsContainer(null)}
+              className="btn-ghost p-2"
+              title="Close logs"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <DockerLogsTerminal
+            key={logsContainer.id}
+            containerId={logsContainer.id}
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {containers.map((c) => (
           <ContainerCard
             key={c.id}
             container={c}
             onExec={() => {
+              setLogsContainer(null);
               setExecShell('auto');
               setExecContainer({ id: c.id, name: c.name });
+            }}
+            onLogs={() => {
+              setExecContainer(null);
+              setLogsContainer({ id: c.id, name: c.name });
             }}
           />
         ))}
@@ -118,9 +148,11 @@ function Docker() {
 function ContainerCard({
   container: c,
   onExec,
+  onLogs,
 }: {
   container: Container;
   onExec: () => void;
+  onLogs: () => void;
 }) {
   const [loading, setLoading] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -192,9 +224,19 @@ function ContainerCard({
                     onClick={() => runAction('restart')}
                     className="text-amber-300 hover:bg-amber-400/10"
                   />
+                  <div className="my-1 border-t border-bg-border" />
+                  <ActionButton
+                    icon={<Logs className="size-3.5" />}
+                    label="Live logs"
+                    loading={false}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onLogs();
+                    }}
+                    className="text-sky-300 hover:bg-sky-400/10"
+                  />
                   {isRunning && (
                     <>
-                      <div className="my-1 border-t border-bg-border" />
                       <ActionButton
                         icon={<Terminal className="size-3.5" />}
                         label="Open shell"

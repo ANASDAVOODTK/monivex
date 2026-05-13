@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/nxadm/tail"
@@ -320,4 +322,98 @@ func (s *Server) HandleDockerExec(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	<-ctx2.Done()
+}
+
+// HandleDockerLogs streams docker logs over WebSocket.
+// URL: /ws/docker/logs/{id}?tail=200
+// Server sends binary frames and closes when the stream ends.
+func (s *Server) HandleDockerLogs(w http.ResponseWriter, r *http.Request) {
+	if !s.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	containerID := chi.URLParam(r, "id")
+	if containerID == "" {
+		http.Error(w, "missing container id", http.StatusBadRequest)
+		return
+	}
+
+	cli := s.docker.Client()
+	if cli == nil {
+		http.Error(w, "docker not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	tail := strings.TrimSpace(r.URL.Query().Get("tail"))
+	if tail == "" {
+		tail = "200"
+	}
+	if _, err := strconv.Atoi(tail); err != nil {
+		http.Error(w, "invalid tail", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// Reader goroutine so we can detect client disconnects.
+	go func() {
+		defer cancel()
+		for {
+			if _, _, err := conn.NextReader(); err != nil {
+				return
+			}
+		}
+	}()
+
+	logs, err := cli.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Tail:       tail,
+	})
+	if err != nil {
+		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("* Failed to attach logs: "+err.Error()+"\r\n"))
+		return
+	}
+	defer logs.Close()
+
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		_, _ = stdcopy.StdCopy(pw, pw, logs)
+	}()
+
+	buf := make([]byte, 4096)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		n, readErr := pr.Read(buf)
+		if n > 0 {
+			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if wErr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); wErr != nil {
+				return
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				return
+			}
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = conn.WriteMessage(websocket.TextMessage, []byte("* Log stream ended with error: "+readErr.Error()+"\r\n"))
+			return
+		}
+	}
 }

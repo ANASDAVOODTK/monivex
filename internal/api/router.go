@@ -82,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/ws/metrics", s.ws.HandleMetrics)
 	r.Get("/ws/logs", s.ws.HandleLogs)
 	r.Get("/ws/docker/exec/{id}", s.ws.HandleDockerExec)
+	r.Get("/ws/docker/logs/{id}", s.ws.HandleDockerLogs)
 
 	// Static UI
 	if s.ui != nil {
