@@ -73,7 +73,7 @@ function ContainerLinkCard({ container: c }: { container: Container }) {
 
   return (
     <Link
-      href={`/docker/${encodeURIComponent(c.id)}`}
+      href={`/docker/container?id=${encodeURIComponent(c.id)}`}
       className="card card-pad block transition-colors hover:border-accent/40 hover:bg-white/[0.03]"
     >
       <div className="flex items-start justify-between gap-3">
