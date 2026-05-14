@@ -108,6 +108,9 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	if !strings.Contains(kong, "dashboard-all") || !strings.Contains(kong, "basic-auth") {
 		t.Errorf("kong.yml missing dashboard auth route")
 	}
+	if !strings.Contains(kong, `username: "supabase"`) || !strings.Contains(kong, `password: "studiopass"`) {
+		t.Errorf("kong.yml does not render dashboard basic auth credentials")
+	}
 	initSQL, ok := rendered.Files["volumes/db/init.sql"]
 	if !ok {
 		t.Fatalf("init.sql not generated; got %v", keys(rendered.Files))
@@ -135,6 +138,7 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"EDGE_FUNCTIONS_MANAGEMENT_FOLDER",
 		"SNIPPETS_MANAGEMENT_FOLDER",
+		"APP_NAME: realtime",
 	} {
 		if !strings.Contains(rendered.Compose, want) {
 			t.Errorf("compose missing studio env %q", want)

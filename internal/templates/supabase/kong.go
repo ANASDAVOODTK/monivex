@@ -7,14 +7,14 @@ const kongDeclarativeYAML = `_format_version: "1.1"
 consumers:
   - username: anon
     keyauth_credentials:
-      - key: ${ANON_KEY}
+      - key: "{{ .Config.anon_key }}"
   - username: service_role
     keyauth_credentials:
-      - key: ${SERVICE_ROLE_KEY}
+      - key: "{{ .Config.service_role_key }}"
   - username: dashboard
     basicauth_credentials:
-      - username: ${DASHBOARD_USERNAME}
-        password: ${DASHBOARD_PASSWORD}
+      - username: "{{ .Config.dashboard_user }}"
+        password: "{{ .Config.dashboard_password }}"
 
 acls:
   - consumer: anon
