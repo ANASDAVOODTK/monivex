@@ -106,6 +106,22 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	if !strings.Contains(kong, "auth-v1") {
 		t.Errorf("kong.yml missing auth-v1 route")
 	}
+	for _, want := range []string{
+		"volumes/db/roles.sql",
+		"volumes/db/jwt.sql",
+		"volumes/db/realtime.sql",
+		"volumes/db/webhooks.sql",
+	} {
+		if _, ok := rendered.Files[want]; !ok {
+			t.Errorf("missing init script %s; got %v", want, keys(rendered.Files))
+		}
+	}
+	if !strings.Contains(rendered.Files["volumes/db/roles.sql"], "supabase_auth_admin") {
+		t.Errorf("roles.sql does not contain supabase_auth_admin")
+	}
+	if !strings.Contains(rendered.Env, "JWT_EXP=") {
+		t.Errorf("env missing JWT_EXP")
+	}
 }
 
 func TestRenderIsDeterministic(t *testing.T) {

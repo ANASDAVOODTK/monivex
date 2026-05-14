@@ -104,7 +104,13 @@ func (d *Driver) Render(dep *templates.Deployment) (templates.RenderedArtifacts,
 		Compose: composeBuf.String(),
 		Env:     envBuf.String(),
 		Files: map[string]string{
-			"volumes/kong.yml": kongBuf.String(),
+			"volumes/kong.yml":     kongBuf.String(),
+			"volumes/db/roles.sql": rolesSQL,
+			"volumes/db/jwt.sql":   jwtSQL,
+			// Realtime / webhooks need their own schemas to exist before the
+			// service tries to create migration tables in them.
+			"volumes/db/realtime.sql": realtimeSQL,
+			"volumes/db/webhooks.sql": webhooksSQL,
 		},
 	}, nil
 }
@@ -115,6 +121,7 @@ var envTpl = template.Must(template.New("env").Funcs(template.FuncMap{
 POSTGRES_PASSWORD={{ .Config.postgres_password }}
 POSTGRES_DB={{ default .Config.postgres_db "postgres" }}
 JWT_SECRET={{ .Config.jwt_secret }}
+JWT_EXP=3600
 ANON_KEY={{ .Config.anon_key }}
 SERVICE_ROLE_KEY={{ .Config.service_role_key }}
 DASHBOARD_USERNAME={{ .Config.dashboard_user }}

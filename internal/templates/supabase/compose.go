@@ -75,7 +75,7 @@ services:
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_EXP: ${JWT_EXP}
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
@@ -187,9 +187,13 @@ services:
       PGDATABASE: ${POSTGRES_DB}
       POSTGRES_DB: ${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
-      JWT_EXP: 3600
+      JWT_EXP: ${JWT_EXP}
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/99-roles.sql:ro
+      - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/98-jwt.sql:ro
+      - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/97-realtime.sql:ro
+      - ./volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/96-webhooks.sql:ro
     ports:
       - "${POSTGRES_PORT}:5432/tcp"
 
