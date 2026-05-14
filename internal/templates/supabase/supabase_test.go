@@ -71,7 +71,6 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 			"postgres_db":        "postgres",
 		},
 		Ports: map[string]int{
-			"studio":     3000,
 			"kong_http":  8000,
 			"kong_https": 8443,
 			"postgres":   54322,
@@ -106,6 +105,9 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	if !strings.Contains(kong, "auth-v1") {
 		t.Errorf("kong.yml missing auth-v1 route")
 	}
+	if !strings.Contains(kong, "dashboard-all") || !strings.Contains(kong, "basic-auth") {
+		t.Errorf("kong.yml missing dashboard auth route")
+	}
 	initSQL, ok := rendered.Files["volumes/db/init.sql"]
 	if !ok {
 		t.Fatalf("init.sql not generated; got %v", keys(rendered.Files))
@@ -126,6 +128,17 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(rendered.Compose, "/docker-entrypoint-initdb.d/init-scripts/99-server-monitor-init.sql") {
 		t.Errorf("compose is not mounting init.sql as a postgres init script")
+	}
+	if strings.Contains(rendered.Compose, "STUDIO_PORT") {
+		t.Errorf("compose should not expose studio host port")
+	}
+	for _, want := range []string{
+		"EDGE_FUNCTIONS_MANAGEMENT_FOLDER",
+		"SNIPPETS_MANAGEMENT_FOLDER",
+	} {
+		if !strings.Contains(rendered.Compose, want) {
+			t.Errorf("compose missing studio env %q", want)
+		}
 	}
 	if !strings.Contains(rendered.Env, "JWT_EXP=") {
 		t.Errorf("env missing JWT_EXP")
@@ -169,7 +182,6 @@ func validInput() templates.DeployInput {
 			"postgres_password":  "dbpass1234",
 		},
 		Ports: map[string]int{
-			"studio":     3000,
 			"kong_http":  8000,
 			"kong_https": 8443,
 			"postgres":   54322,
@@ -191,7 +203,7 @@ func buildDeployment() *templates.Deployment {
 			"postgres_db":        "postgres",
 		},
 		Ports: map[string]int{
-			"studio": 3000, "kong_http": 8000, "kong_https": 8443, "postgres": 54322,
+			"kong_http": 8000, "kong_https": 8443, "postgres": 54322,
 		},
 	}
 }

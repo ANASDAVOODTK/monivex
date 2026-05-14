@@ -16,6 +16,9 @@ services:
         condition: service_started
     environment:
       STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DEFAULT_ORGANIZATION_NAME: {{ .Dep.Name }}
       DEFAULT_PROJECT_NAME: {{ .Dep.Slug }}
@@ -26,10 +29,14 @@ services:
       AUTH_JWT_SECRET: ${JWT_SECRET}
       LOGFLARE_API_KEY: ""
       NEXT_PUBLIC_ENABLE_LOGS: "false"
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+      SNIPPETS_MANAGEMENT_FOLDER: /app/snippets
+      EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /app/edge-functions
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
-    ports:
-      - "${STUDIO_PORT}:3000/tcp"
+    volumes:
+      - studio-snippets:/app/snippets
+      - studio-functions:/app/edge-functions
 
   kong:
     image: kong:2.8.1
@@ -115,12 +122,8 @@ services:
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       DB_ENC_KEY: supabaserealtime
       API_JWT_SECRET: ${JWT_SECRET}
-      FLY_ALLOC_ID: fly123
-      FLY_APP_NAME: realtime
       SECRET_KEY_BASE: "UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq"
       ERL_AFLAGS: -proto_dist inet_tcp
-      ENABLE_TAILSCALE: "false"
-      DNS_NODES: ""
 
   storage:
     image: supabase/storage-api:v1.0.6
@@ -205,4 +208,6 @@ services:
 volumes:
   db-data:
   storage-data:
+  studio-snippets:
+  studio-functions:
 `

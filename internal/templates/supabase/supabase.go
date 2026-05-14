@@ -43,7 +43,6 @@ func (d *Driver) Definition() templates.Definition {
 			{Key: "smtp_sender", Label: "SMTP sender", Type: templates.FieldText, Required: false, Default: "noreply@example.com", Group: "smtp"},
 		},
 		Ports: []templates.PortField{
-			{Key: "studio", Label: "Studio (web UI)", Default: 3000, Description: "Browse Studio at this host port."},
 			{Key: "kong_http", Label: "Kong API gateway", Default: 8000, Description: "Public REST/auth/storage URL host port."},
 			{Key: "kong_https", Label: "Kong API gateway (HTTPS)", Default: 8443},
 			{Key: "postgres", Label: "Postgres", Default: 54322, Description: "Expose Postgres on the host for direct access."},
@@ -131,7 +130,6 @@ SMTP_PORT={{ default .Config.smtp_port "587" }}
 SMTP_USER={{ .Config.smtp_user }}
 SMTP_PASS={{ .Config.smtp_pass }}
 SMTP_SENDER={{ default .Config.smtp_sender "noreply@example.com" }}
-STUDIO_PORT={{ .Ports.studio }}
 KONG_HTTP_PORT={{ .Ports.kong_http }}
 KONG_HTTPS_PORT={{ .Ports.kong_https }}
 POSTGRES_PORT={{ .Ports.postgres }}

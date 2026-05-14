@@ -11,6 +11,10 @@ consumers:
   - username: service_role
     keyauth_credentials:
       - key: ${SERVICE_ROLE_KEY}
+  - username: dashboard
+    basicauth_credentials:
+      - username: ${DASHBOARD_USERNAME}
+        password: ${DASHBOARD_PASSWORD}
 
 acls:
   - consumer: anon
@@ -19,6 +23,18 @@ acls:
     group: admin
 
 services:
+  - name: dashboard
+    url: http://studio:3000/
+    routes:
+      - name: dashboard-all
+        strip_path: false
+        paths:
+          - /
+    plugins:
+      - name: basic-auth
+        config:
+          hide_credentials: true
+      - name: cors
   - name: auth-v1
     url: http://auth:9999/
     routes:
