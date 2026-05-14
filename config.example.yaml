@@ -36,3 +36,10 @@ gpu:
   enabled: true
   # "nvml" (preferred) or "nvidia-smi" (fallback). "auto" tries NVML first.
   backend: "auto"
+
+templates:
+  # Per-deployment workdirs (compose files, .env, support files) are created
+  # here. Postgres + storage data still live inside Docker named volumes that
+  # are namespaced with the deployment slug. Leave empty to use the default
+  # "{data_dir}/templates".
+  storage_root: ""

@@ -169,3 +169,31 @@ func keys(m map[string]string) []string {
 	}
 	return out
 }
+
+func TestGenerateConfigProducesValidValues(t *testing.T) {
+	d := New()
+	cfg, err := d.GenerateConfig()
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	required := []string{"jwt_secret", "anon_key", "service_role_key", "dashboard_password", "postgres_password"}
+	for _, k := range required {
+		if cfg[k] == "" {
+			t.Errorf("generated config missing %s", k)
+		}
+	}
+	if len(cfg["jwt_secret"]) < 32 {
+		t.Errorf("jwt_secret too short: %d", len(cfg["jwt_secret"]))
+	}
+	if !strings.Contains(cfg["anon_key"], ".") {
+		t.Errorf("anon_key does not look like a JWT: %s", cfg["anon_key"])
+	}
+	if !strings.Contains(cfg["service_role_key"], ".") {
+		t.Errorf("service_role_key does not look like a JWT")
+	}
+	// The freshly generated keys must validate against the JWT secret.
+	in := templates.DeployInput{Name: "demo", Config: cfg}
+	if err := d.Validate(in); err != nil {
+		t.Errorf("generated config did not pass Validate: %v", err)
+	}
+}

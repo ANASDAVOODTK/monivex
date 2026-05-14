@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/logs/sources", s.handleLogSources)
 			r.Get("/templates", s.handleTemplatesList)
 			r.Get("/templates/{templateId}", s.handleTemplateGet)
+			r.Get("/templates/{templateId}/defaults", s.handleTemplateDefaults)
 			r.Post("/templates/{templateId}/deploy", s.handleTemplateDeploy)
 			r.Get("/templates/deployments", s.handleDeploymentsList)
 			r.Get("/templates/deployments/{id}", s.handleDeploymentGet)
@@ -445,7 +446,8 @@ func (s *Server) handleTemplatesList(w http.ResponseWriter, r *http.Request) {
 			"version":   ver,
 			"error":     msg,
 		},
-		"templates": s.templates.Definitions(),
+		"templates":    s.templates.Definitions(),
+		"storage_root": s.templates.StorageRoot(),
 	})
 }
 
@@ -457,6 +459,16 @@ func (s *Server) handleTemplateGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, def)
+}
+
+func (s *Server) handleTemplateDefaults(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "templateId")
+	d, err := s.templates.GenerateDefaults(r.Context(), id)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, d)
 }
 
 func (s *Server) handleTemplateDeploy(w http.ResponseWriter, r *http.Request) {

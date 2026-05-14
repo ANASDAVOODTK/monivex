@@ -53,7 +53,7 @@ func main() {
 
 	tplReg := templates.NewRegistry()
 	tplReg.Register(supabasetpl.New())
-	tplSvc := templates.NewService(tplReg, st, cfg.DataDir)
+	tplSvc := templates.NewService(tplReg, st, cfg.DataDir, cfg.Templates.StorageRoot)
 	go runTemplateReconciler(ctx, tplSvc)
 
 	var ui fs.FS

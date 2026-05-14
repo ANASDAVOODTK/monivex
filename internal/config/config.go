@@ -17,6 +17,7 @@ type Config struct {
 	Docker    DockerConfig    `yaml:"docker"`
 	NodeJS    NodeJSConfig    `yaml:"nodejs"`
 	GPU       GPUConfig       `yaml:"gpu"`
+	Templates TemplatesConfig `yaml:"templates"`
 }
 
 type ServerConfig struct {
@@ -99,6 +100,15 @@ type NodeJSConfig struct {
 type GPUConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Backend string `yaml:"backend"`
+}
+
+// TemplatesConfig controls the on-disk location for template deployments.
+// StorageRoot defaults to "{data_dir}/templates" when empty. Each deployment
+// gets a subdirectory <StorageRoot>/<slug> containing the compose file, .env,
+// and any support files. Docker named volumes (postgres data, storage objects)
+// are still managed by Docker but are namespaced with the deployment slug.
+type TemplatesConfig struct {
+	StorageRoot string `yaml:"storage_root"`
 }
 
 func Default() *Config {

@@ -116,8 +116,19 @@ type fakeDriver struct {
 	def Definition
 }
 
-func (f *fakeDriver) Definition() Definition           { return f.def }
-func (f *fakeDriver) Validate(_ DeployInput) error     { return nil }
+func (f *fakeDriver) Definition() Definition       { return f.def }
+func (f *fakeDriver) Validate(_ DeployInput) error { return nil }
 func (f *fakeDriver) Render(_ *Deployment) (RenderedArtifacts, error) {
 	return RenderedArtifacts{Compose: "services: {}", Env: ""}, nil
+}
+
+func TestNextFreePort(t *testing.T) {
+	used := map[int]bool{40001: true, 40002: true}
+	got := nextFreePort(40001, used)
+	if used[got] {
+		t.Errorf("nextFreePort returned a used port: %d", got)
+	}
+	if got < 40001 {
+		t.Errorf("expected port >= start, got %d", got)
+	}
 }

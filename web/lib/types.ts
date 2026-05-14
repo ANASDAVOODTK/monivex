@@ -197,6 +197,13 @@ export interface TemplateEngineStatus {
 export interface TemplatesCatalogResponse {
   engine: TemplateEngineStatus;
   templates: TemplateDefinition[];
+  storage_root: string;
+}
+
+export interface TemplateDefaults {
+  config: Record<string, string>;
+  ports: Record<string, number>;
+  notes: string[];
 }
 
 export type DeploymentStatus =

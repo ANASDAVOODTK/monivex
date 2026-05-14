@@ -28,8 +28,12 @@ type Service struct {
 }
 
 // NewService wires the registry, store and on-disk workdir root together.
-func NewService(reg *Registry, st *store.Store, dataDir string) *Service {
-	root := filepath.Join(dataDir, "templates")
+// If storageRoot is empty it defaults to "{dataDir}/templates".
+func NewService(reg *Registry, st *store.Store, dataDir, storageRoot string) *Service {
+	root := storageRoot
+	if root == "" {
+		root = filepath.Join(dataDir, "templates")
+	}
 	_ = os.MkdirAll(root, 0o755)
 	return &Service{
 		registry:   reg,
@@ -38,6 +42,9 @@ func NewService(reg *Registry, st *store.Store, dataDir string) *Service {
 		composeBin: "docker",
 	}
 }
+
+// StorageRoot returns the directory holding per-deployment workdirs.
+func (s *Service) StorageRoot() string { return s.rootDir }
 
 // Definitions returns the registered template catalog.
 func (s *Service) Definitions() []Definition { return s.registry.List() }

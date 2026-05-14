@@ -7,7 +7,7 @@ import { DashboardShell } from '@/components/dashboard-shell';
 import { EmptyState, Notice, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { TemplateDefinition, TemplateField } from '@/lib/types';
-import { ArrowLeft, Boxes, Loader2, Plus, Rocket, Trash2 } from 'lucide-react';
+import { ArrowLeft, Boxes, Eye, EyeOff, Loader2, Plus, RefreshCw, Rocket, Trash2, Wand2 } from 'lucide-react';
 
 export default function TemplateDeployPage() {
   return (
@@ -26,11 +26,34 @@ function DeployForm() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [autofilling, setAutofilling] = useState(false);
+  const [portNotes, setPortNotes] = useState<string[]>([]);
 
   const [name, setName] = useState('');
   const [config, setConfig] = useState<Record<string, string>>({});
   const [ports, setPorts] = useState<Record<string, number>>({});
   const [envRows, setEnvRows] = useState<{ key: string; value: string }[]>([]);
+
+  const applyDefaults = useCallback(
+    async (id: string, mode: 'all' | 'ports' | 'secrets') => {
+      setAutofilling(true);
+      try {
+        const d = await api.templateDefaults(id);
+        if (mode !== 'ports') {
+          setConfig((prev) => ({ ...prev, ...d.config }));
+        }
+        if (mode !== 'secrets') {
+          setPorts((prev) => ({ ...prev, ...d.ports }));
+          setPortNotes(d.notes ?? []);
+        }
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'Failed to generate defaults');
+      } finally {
+        setAutofilling(false);
+      }
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     if (!templateId) {
@@ -51,12 +74,14 @@ function DeployForm() {
         pmap[p.key] = p.default;
       }
       setPorts(pmap);
+      // Auto-populate generated secrets and probe for free ports on first load.
+      await applyDefaults(templateId, 'all');
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to load template');
     } finally {
       setLoading(false);
     }
-  }, [templateId]);
+  }, [templateId, applyDefaults]);
 
   useEffect(() => {
     load();
@@ -133,9 +158,32 @@ function DeployForm() {
         eyebrow={`Template: ${template.id}`}
         title={`Deploy ${template.name}`}
         description={template.description}
+        actions={
+          <button
+            type="button"
+            onClick={() => applyDefaults(template.id, 'all')}
+            disabled={autofilling}
+            className="btn-secondary"
+            title="Regenerate JWT secret, keys, passwords, and probe free ports"
+          >
+            {autofilling ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+            Auto-generate all
+          </button>
+        }
       />
 
       {err && <Notice tone="danger">{err}</Notice>}
+
+      {portNotes.length > 0 && (
+        <Notice tone="warning">
+          <div className="font-medium">Port collisions detected. Defaults adjusted:</div>
+          <ul className="mt-1 list-disc pl-5 text-xs">
+            {portNotes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </Notice>
+      )}
 
       <form onSubmit={submit} className="space-y-5">
         <section className="card card-pad space-y-4">
@@ -152,25 +200,61 @@ function DeployForm() {
           </Field>
         </section>
 
-        {Object.entries(grouped).map(([group, fields]) => (
-          <section key={group} className="card card-pad space-y-4">
-            <SectionTitle title={prettyGroup(group)} />
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {fields.map((f) => (
-                <DynamicField
-                  key={f.key}
-                  field={f}
-                  value={config[f.key] ?? ''}
-                  onChange={(v) => setConfig((p) => ({ ...p, [f.key]: v }))}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+        {Object.entries(grouped).map(([group, fields]) => {
+          const groupHasSecrets = fields.some(
+            (f) => f.type === 'secret' || f.type === 'password',
+          );
+          return (
+            <section key={group} className="card card-pad space-y-4">
+              <SectionTitle
+                title={prettyGroup(group)}
+                actions={
+                  groupHasSecrets ? (
+                    <button
+                      type="button"
+                      onClick={() => applyDefaults(template.id, 'secrets')}
+                      disabled={autofilling}
+                      className="btn-secondary"
+                      title="Generate new random secrets / passwords"
+                    >
+                      {autofilling ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+                      Regenerate secrets
+                    </button>
+                  ) : null
+                }
+              />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {fields.map((f) => (
+                  <DynamicField
+                    key={f.key}
+                    field={f}
+                    value={config[f.key] ?? ''}
+                    onChange={(v) => setConfig((p) => ({ ...p, [f.key]: v }))}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
 
         {template.ports.length > 0 && (
           <section className="card card-pad space-y-4">
-            <SectionTitle title="Ports" description="Each deployment must use unique host ports." />
+            <SectionTitle
+              title="Ports"
+              description="Each deployment must use unique host ports."
+              actions={
+                <button
+                  type="button"
+                  onClick={() => applyDefaults(template.id, 'ports')}
+                  disabled={autofilling}
+                  className="btn-secondary"
+                  title="Probe host for free ports starting from the template default"
+                >
+                  {autofilling ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                  Find free ports
+                </button>
+              }
+            />
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {template.ports.map((p) => (
                 <Field key={p.key} label={p.label} description={p.description}>
@@ -268,6 +352,8 @@ function DynamicField({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const [reveal, setReveal] = useState(false);
+  const isSecret = field.type === 'password' || field.type === 'secret';
   const handle = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(e.target.value);
   return (
     <Field label={field.label} required={field.required} description={field.description}>
@@ -278,15 +364,26 @@ function DynamicField({
           onChange={handle}
           placeholder={field.placeholder}
         />
-      ) : field.type === 'password' || field.type === 'secret' ? (
-        <input
-          type="password"
-          autoComplete="new-password"
-          className="input font-mono text-xs"
-          value={value}
-          onChange={handle}
-          placeholder={field.placeholder}
-        />
+      ) : isSecret ? (
+        <div className="relative">
+          <input
+            type={reveal ? 'text' : 'password'}
+            autoComplete="new-password"
+            className="input pr-10 font-mono text-xs"
+            value={value}
+            onChange={handle}
+            placeholder={field.placeholder}
+          />
+          <button
+            type="button"
+            onClick={() => setReveal((v) => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-fg-subtle hover:bg-white/[0.06] hover:text-fg"
+            title={reveal ? 'Hide value' : 'Show value'}
+            tabIndex={-1}
+          >
+            {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </button>
+        </div>
       ) : field.type === 'number' ? (
         <input
           type="number"

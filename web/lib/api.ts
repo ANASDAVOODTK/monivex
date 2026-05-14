@@ -51,6 +51,8 @@ export const api = {
     request<{ ok: boolean }>(`/node-apps/${pmId}/delete`, { method: 'POST' }),
   templatesCatalog: () => request<import('./types').TemplatesCatalogResponse>('/templates'),
   templateGet: (id: string) => request<import('./types').TemplateDefinition>(`/templates/${id}`),
+  templateDefaults: (id: string) =>
+    request<import('./types').TemplateDefaults>(`/templates/${id}/defaults`),
   templateDeploy: (id: string, body: import('./types').DeployInput) =>
     request<import('./types').Deployment>(`/templates/${id}/deploy`, {
       method: 'POST',

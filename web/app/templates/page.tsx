@@ -33,6 +33,7 @@ export default function TemplatesPage() {
 function TemplatesPanel() {
   const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
   const [engine, setEngine] = useState<TemplateEngineStatus | null>(null);
+  const [storageRoot, setStorageRoot] = useState<string>('');
   const [deployments, setDeployments] = useState<DeploymentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -47,6 +48,7 @@ function TemplatesPanel() {
       ]);
       setTemplates(catalog.templates);
       setEngine(catalog.engine);
+      setStorageRoot(catalog.storage_root || '');
       setDeployments(deps);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to load');
@@ -113,6 +115,16 @@ function TemplatesPanel() {
       {engine && !engine.available && (
         <Notice tone="warning">
           Docker Compose is not available on this host. Install Docker with the compose plugin to deploy templates. {engine.error}
+        </Notice>
+      )}
+
+      {storageRoot && (
+        <Notice>
+          <div className="text-xs">
+            Deployments are stored under
+            <span className="ml-1 font-mono text-fg">{storageRoot}</span>
+            . Postgres and storage data live in Docker named volumes namespaced by each deployment slug.
+          </div>
         </Notice>
       )}
 
