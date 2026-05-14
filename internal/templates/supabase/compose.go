@@ -22,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DEFAULT_ORGANIZATION_NAME: {{ .Dep.Name }}
       DEFAULT_PROJECT_NAME: {{ .Dep.Slug }}
-      SUPABASE_PUBLIC_URL: http://localhost:${KONG_HTTP_PORT}
+      SUPABASE_PUBLIC_URL: ${PUBLIC_API_URL}
       SUPABASE_URL: http://kong:8000
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
@@ -72,7 +72,7 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: http://localhost:${KONG_HTTP_PORT}
+      API_EXTERNAL_URL: ${PUBLIC_API_URL}
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       GOTRUE_SITE_URL: ${SITE_URL}
@@ -152,6 +152,9 @@ services:
       FILE_SIZE_LIMIT: 52428800
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      TUS_URL_EXPIRY_MS: 3600000
+      STORAGE_CORS_ALLOWED_ORIGINS: "*"
       TENANT_ID: stub
       REGION: stub
       GLOBAL_S3_BUCKET: stub
