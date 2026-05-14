@@ -60,8 +60,8 @@ services:
     image: supabase/gotrue:v2.151.0
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
@@ -89,8 +89,8 @@ services:
     image: postgrest/postgrest:v12.0.1
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       PGRST_DB_SCHEMAS: public,storage,graphql_public
@@ -103,8 +103,8 @@ services:
     image: supabase/realtime:v2.27.5
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       PORT: 4000
       DB_HOST: db
@@ -126,8 +126,8 @@ services:
     image: supabase/storage-api:v1.0.6
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       rest:
         condition: service_started
     environment:
@@ -160,8 +160,8 @@ services:
     image: supabase/postgres-meta:v0.80.0
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       PG_META_PORT: 8080
       PG_META_DB_HOST: db
@@ -177,7 +177,7 @@ services:
       test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
     environment:
       POSTGRES_HOST: /var/run/postgresql
       PGPORT: 5432
@@ -190,12 +190,31 @@ services:
       JWT_EXP: ${JWT_EXP}
     volumes:
       - db-data:/var/lib/postgresql/data
-      - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/99-roles.sql:ro
-      - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/98-jwt.sql:ro
-      - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/97-realtime.sql:ro
-      - ./volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/96-webhooks.sql:ro
     ports:
       - "${POSTGRES_PORT}:5432/tcp"
+
+  # db-init runs once per stack start to align every Supabase-managed role's
+  # password with POSTGRES_PASSWORD and bootstrap required schemas. It is
+  # idempotent and uses DO blocks so it works on a fresh database *and* on
+  # data dirs created by previous (broken) deploys. Every service that talks
+  # to Postgres waits for this to exit 0 before starting.
+  db-init:
+    image: supabase/postgres:15.1.0.147
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    volumes:
+      - ./volumes/db/init.sql:/init.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "psql -v ON_ERROR_STOP=1 -f /init.sql"
 
 volumes:
   db-data:

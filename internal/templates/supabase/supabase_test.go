@@ -106,21 +106,40 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	if !strings.Contains(kong, "auth-v1") {
 		t.Errorf("kong.yml missing auth-v1 route")
 	}
+	initSQL, ok := rendered.Files["volumes/db/init.sql"]
+	if !ok {
+		t.Fatalf("init.sql not generated; got %v", keys(rendered.Files))
+	}
 	for _, want := range []string{
-		"volumes/db/roles.sql",
-		"volumes/db/jwt.sql",
-		"volumes/db/realtime.sql",
-		"volumes/db/webhooks.sql",
+		"supabase_auth_admin",
+		"supabase_storage_admin",
+		"authenticator",
+		"CREATE SCHEMA IF NOT EXISTS _realtime",
+		"CREATE SCHEMA IF NOT EXISTS supabase_functions",
+		"app.settings.jwt_secret",
 	} {
-		if _, ok := rendered.Files[want]; !ok {
-			t.Errorf("missing init script %s; got %v", want, keys(rendered.Files))
+		if !strings.Contains(initSQL, want) {
+			t.Errorf("init.sql missing %q", want)
 		}
 	}
-	if !strings.Contains(rendered.Files["volumes/db/roles.sql"], "supabase_auth_admin") {
-		t.Errorf("roles.sql does not contain supabase_auth_admin")
+	if !strings.Contains(rendered.Compose, "db-init:") {
+		t.Errorf("compose missing db-init sidecar")
+	}
+	if !strings.Contains(rendered.Compose, "service_completed_successfully") {
+		t.Errorf("compose missing db-init dependency condition")
 	}
 	if !strings.Contains(rendered.Env, "JWT_EXP=") {
 		t.Errorf("env missing JWT_EXP")
+	}
+}
+
+func TestRenderInitSQLEscapesQuotes(t *testing.T) {
+	out, err := renderInitSQL("p'wd", "se'cret")
+	if err != nil {
+		t.Fatalf("renderInitSQL: %v", err)
+	}
+	if !strings.Contains(out, "p''wd") || !strings.Contains(out, "se''cret") {
+		t.Errorf("expected single quotes to be doubled; got: %s", out)
 	}
 }
 

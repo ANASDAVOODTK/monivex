@@ -100,17 +100,16 @@ func (d *Driver) Render(dep *templates.Deployment) (templates.RenderedArtifacts,
 	if err := kongTpl.Execute(kongBuf, data); err != nil {
 		return templates.RenderedArtifacts{}, fmt.Errorf("kong render: %w", err)
 	}
+	initSQL, err := renderInitSQL(dep.Config["postgres_password"], dep.Config["jwt_secret"])
+	if err != nil {
+		return templates.RenderedArtifacts{}, err
+	}
 	return templates.RenderedArtifacts{
 		Compose: composeBuf.String(),
 		Env:     envBuf.String(),
 		Files: map[string]string{
-			"volumes/kong.yml":     kongBuf.String(),
-			"volumes/db/roles.sql": rolesSQL,
-			"volumes/db/jwt.sql":   jwtSQL,
-			// Realtime / webhooks need their own schemas to exist before the
-			// service tries to create migration tables in them.
-			"volumes/db/realtime.sql": realtimeSQL,
-			"volumes/db/webhooks.sql": webhooksSQL,
+			"volumes/kong.yml":    kongBuf.String(),
+			"volumes/db/init.sql": initSQL,
 		},
 	}, nil
 }
