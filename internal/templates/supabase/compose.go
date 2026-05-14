@@ -60,8 +60,8 @@ services:
     image: supabase/gotrue:v2.151.0
     restart: unless-stopped
     depends_on:
-      db-init:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
@@ -89,8 +89,8 @@ services:
     image: postgrest/postgrest:v12.0.1
     restart: unless-stopped
     depends_on:
-      db-init:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       PGRST_DB_SCHEMAS: public,storage,graphql_public
@@ -103,8 +103,8 @@ services:
     image: supabase/realtime:v2.27.5
     restart: unless-stopped
     depends_on:
-      db-init:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     environment:
       PORT: 4000
       DB_HOST: db
@@ -126,8 +126,8 @@ services:
     image: supabase/storage-api:v1.0.6
     restart: unless-stopped
     depends_on:
-      db-init:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
       rest:
         condition: service_started
     environment:
@@ -160,8 +160,8 @@ services:
     image: supabase/postgres-meta:v0.80.0
     restart: unless-stopped
     depends_on:
-      db-init:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     environment:
       PG_META_PORT: 8080
       PG_META_DB_HOST: db
@@ -190,50 +190,17 @@ services:
       JWT_EXP: ${JWT_EXP}
     volumes:
       - db-data:/var/lib/postgresql/data
+      # Mounted into the image's bundled init-scripts directory. Postgres
+      # runs everything under /docker-entrypoint-initdb.d on FIRST boot of
+      # an empty data dir as the bootstrap superuser - the only context
+      # that can ALTER reserved roles such as authenticator.
+      #
+      # IMPORTANT: this only fires on a fresh volume. If a previous broken
+      # deploy left a stale db-data volume, you MUST Delete the deployment
+      # (so the volume is removed) and re-create it.
+      - ./volumes/db/init.sql:/docker-entrypoint-initdb.d/init-scripts/99-server-monitor-init.sql:ro
     ports:
       - "${POSTGRES_PORT}:5432/tcp"
-
-  # db-init runs once per stack start to align every Supabase-managed role's
-  # password with POSTGRES_PASSWORD and bootstrap required schemas. It is
-  # idempotent and uses DO blocks so it works on a fresh database *and* on
-  # data dirs created by previous (broken) deploys. Every service that talks
-  # to Postgres waits for this to exit 0 before starting.
-  db-init:
-    image: supabase/postgres:15.1.0.147
-    restart: "no"
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PGHOST: db
-      PGPORT: 5432
-      PGUSER: postgres
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      PGDATABASE: ${POSTGRES_DB}
-    volumes:
-      - ./volumes/db/init.sql:/init.sql:ro
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        echo "[db-init] starting"
-        # pg_isready may go true before supabase/postgres has finished
-        # creating its internal roles. Block until supabase_auth_admin
-        # exists or we hit ~3 minutes - then bail loudly.
-        for i in $$(seq 1 90); do
-          ok=$$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='supabase_auth_admin'" 2>&1 || true)
-          if [ "$$ok" = "1" ]; then
-            echo "[db-init] supabase roles are present"
-            break
-          fi
-          echo "[db-init] waiting for supabase roles (attempt $$i): $$ok"
-          sleep 2
-        done
-        echo "[db-init] /init.sql contents:"
-        sed -e 's/^/[db-init] | /' /init.sql
-        echo "[db-init] applying /init.sql"
-        psql -v ON_ERROR_STOP=1 -f /init.sql
-        echo "[db-init] done"
 
 volumes:
   db-data:

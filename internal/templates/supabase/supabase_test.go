@@ -124,11 +124,8 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 			t.Errorf("init.sql missing %q", want)
 		}
 	}
-	if !strings.Contains(rendered.Compose, "db-init:") {
-		t.Errorf("compose missing db-init sidecar")
-	}
-	if !strings.Contains(rendered.Compose, "service_completed_successfully") {
-		t.Errorf("compose missing db-init dependency condition")
+	if !strings.Contains(rendered.Compose, "/docker-entrypoint-initdb.d/init-scripts/99-server-monitor-init.sql") {
+		t.Errorf("compose is not mounting init.sql as a postgres init script")
 	}
 	if !strings.Contains(rendered.Env, "JWT_EXP=") {
 		t.Errorf("env missing JWT_EXP")
