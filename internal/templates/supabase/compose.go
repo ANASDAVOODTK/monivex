@@ -107,24 +107,30 @@ services:
       PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
 
   realtime:
-    image: supabase/realtime:v2.27.5
+    # v2.27.5 ran the server through "sudo -E -u nobody" which silently
+    # stripped APP_NAME (and other env) because the image sudoers entry
+    # does not have setenv. We pin a newer tag that fixes the sudo wrapper
+    # and accepts env vars correctly.
+    image: supabase/realtime:v2.30.34
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PORT: 4000
+      PORT: "4000"
       DB_HOST: db
-      DB_PORT: 5432
+      DB_PORT: "5432"
       DB_USER: supabase_admin
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB}
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       DB_ENC_KEY: supabaserealtime
       API_JWT_SECRET: ${JWT_SECRET}
-      APP_NAME: ${APP_NAME}
+      APP_NAME: realtime
       SECRET_KEY_BASE: "UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq"
       ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
       SEED_SELF_HOST: "true"
       RUN_JANITOR: "true"
       DISABLE_HEALTHCHECK_LOGGING: "true"

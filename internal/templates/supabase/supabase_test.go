@@ -138,7 +138,8 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"EDGE_FUNCTIONS_MANAGEMENT_FOLDER",
 		"SNIPPETS_MANAGEMENT_FOLDER",
-		"APP_NAME: ${APP_NAME}",
+		"APP_NAME: realtime",
+		"supabase/realtime:v2.30.34",
 		"SEED_SELF_HOST: \"true\"",
 		"RUN_JANITOR: \"true\"",
 		"DISABLE_HEALTHCHECK_LOGGING: \"true\"",
