@@ -120,6 +120,7 @@ POSTGRES_PASSWORD={{ .Config.postgres_password }}
 POSTGRES_DB={{ default .Config.postgres_db "postgres" }}
 JWT_SECRET={{ .Config.jwt_secret }}
 JWT_EXP=3600
+APP_NAME=realtime
 ANON_KEY={{ .Config.anon_key }}
 SERVICE_ROLE_KEY={{ .Config.service_role_key }}
 DASHBOARD_USERNAME={{ .Config.dashboard_user }}

@@ -138,7 +138,10 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"EDGE_FUNCTIONS_MANAGEMENT_FOLDER",
 		"SNIPPETS_MANAGEMENT_FOLDER",
-		"APP_NAME: realtime",
+		"APP_NAME: ${APP_NAME}",
+		"SEED_SELF_HOST: \"true\"",
+		"RUN_JANITOR: \"true\"",
+		"DISABLE_HEALTHCHECK_LOGGING: \"true\"",
 	} {
 		if !strings.Contains(rendered.Compose, want) {
 			t.Errorf("compose missing studio env %q", want)
@@ -146,6 +149,9 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(rendered.Env, "JWT_EXP=") {
 		t.Errorf("env missing JWT_EXP")
+	}
+	if !strings.Contains(rendered.Env, "APP_NAME=realtime") {
+		t.Errorf("env missing APP_NAME")
 	}
 }
 
