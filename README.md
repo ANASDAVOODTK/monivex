@@ -19,8 +19,7 @@ go run ./cmd/server-monitor    # http://localhost:8080
 ## Production build
 
 ```bash
-make build      # builds web/out/, then go binary with embedded UI
-./bin/server-monitor --config ./config.yaml
+make build && ./bin/server-monitor --config ./config.yaml
 ```
 
 On first run, the binary prints a one-time setup token. Open `http://<host>:8080/setup` and use it to create the admin user.
@@ -51,15 +50,30 @@ Requirements on the host:
 Workflow:
 
 1. Open **Templates** in the sidebar.
-2. Click a template (e.g. Supabase) and fill the form: project name, JWT
-   secret, anon/service role JWTs, Studio admin credentials, database
-   password, ports, optional extra env vars.
+2. Click a template (e.g. Supabase). The deploy form opens with auto-generated
+   defaults: a fresh JWT secret, matching anon/service-role JWTs, random
+   passwords, and host ports that have been probed against existing
+   deployments AND live TCP listeners on the host (so a Supabase already
+   running on 3000/8000 will not collide). Override anything you want;
+   regenerate secrets and probe for free ports from the form actions.
 3. Hit **Deploy**. server-monitor renders a `docker-compose.yml` + `.env` into
-   `{data_dir}/templates/<slug>/` and runs `docker compose up -d` in the
+   `<storage_root>/<slug>/` and runs `docker compose up -d` in the
    background. The deployment detail page streams status changes, port
    mappings, masked config and an event log.
 4. Manage each deployment with **Start / Stop / Update / Delete** from the
    table or detail page.
+
+Storage layout:
+
+- Compose files, `.env`, and support files (e.g. `volumes/kong.yml`) live
+  under `<storage_root>/<slug>/`. The default for `storage_root` is
+  `{data_dir}/templates` but you can move it to a dedicated disk via
+  `templates.storage_root` in `config.yaml`.
+- Postgres data and Supabase storage objects live in Docker named volumes
+  (`<slug>_db-data`, `<slug>_storage-data`). They survive container
+  recreates and are removed only when you delete the deployment (which
+  passes `down -v`). To put bulk volume data on a different disk, configure
+  Docker's `data-root` rather than the template storage root.
 
 Reusable architecture:
 
