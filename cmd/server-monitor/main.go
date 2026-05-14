@@ -17,6 +17,8 @@ import (
 	"github.com/ANASDAVOODTK/server-monitor/internal/config"
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
+	"github.com/ANASDAVOODTK/server-monitor/internal/templates"
+	supabasetpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/supabase"
 )
 
 // uiFromMain is wired by embed.go in the same package.
@@ -49,11 +51,16 @@ func main() {
 	defer h.Close()
 	go h.Run(ctx)
 
+	tplReg := templates.NewRegistry()
+	tplReg.Register(supabasetpl.New())
+	tplSvc := templates.NewService(tplReg, st, cfg.DataDir)
+	go runTemplateReconciler(ctx, tplSvc)
+
 	var ui fs.FS
 	if uiFromMain != nil {
 		ui = uiFromMain()
 	}
-	srv := api.NewServer(cfg, st, authSvc, h, ui)
+	srv := api.NewServer(cfg, st, authSvc, h, tplSvc, ui)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Server.Bind,
@@ -87,4 +94,19 @@ func main() {
 	defer shutCancel()
 	_ = httpServer.Shutdown(shutCtx)
 	cancel()
+}
+
+func runTemplateReconciler(ctx context.Context, svc *templates.Service) {
+	// Initial reconcile after a small delay so docker compose finishes warming.
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			svc.Reconcile(ctx)
+			timer.Reset(30 * time.Second)
+		}
+	}
 }

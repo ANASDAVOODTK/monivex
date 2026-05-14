@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  Boxes,
   Container,
   Cpu,
   HardDrive,
@@ -23,6 +24,7 @@ export const NAV = [
   { href: '/services', label: 'Services', icon: ListTree },
   { href: '/node-apps', label: 'Node apps', icon: Package },
   { href: '/docker', label: 'Docker', icon: Container },
+  { href: '/templates', label: 'Templates', icon: Boxes },
   { href: '/disks', label: 'Disks', icon: HardDrive },
   { href: '/logs', label: 'Logs', icon: ScrollText },
   { href: '/settings', label: 'Settings', icon: Settings },

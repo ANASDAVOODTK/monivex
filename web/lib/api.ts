@@ -49,4 +49,26 @@ export const api = {
     request<{ ok: boolean }>(`/node-apps/${pmId}/restart`, { method: 'POST' }),
   nodeAppDelete: (pmId: number) =>
     request<{ ok: boolean }>(`/node-apps/${pmId}/delete`, { method: 'POST' }),
+  templatesCatalog: () => request<import('./types').TemplatesCatalogResponse>('/templates'),
+  templateGet: (id: string) => request<import('./types').TemplateDefinition>(`/templates/${id}`),
+  templateDeploy: (id: string, body: import('./types').DeployInput) =>
+    request<import('./types').Deployment>(`/templates/${id}/deploy`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deploymentList: () => request<import('./types').DeploymentSummary[]>('/templates/deployments'),
+  deploymentGet: (id: string) => request<import('./types').Deployment>(`/templates/deployments/${id}`),
+  deploymentEvents: (id: string) =>
+    request<import('./types').DeploymentEvent[]>(`/templates/deployments/${id}/events`),
+  deploymentStart: (id: string) =>
+    request<{ ok: boolean }>(`/templates/deployments/${id}/start`, { method: 'POST' }),
+  deploymentStop: (id: string) =>
+    request<{ ok: boolean }>(`/templates/deployments/${id}/stop`, { method: 'POST' }),
+  deploymentUpdate: (id: string) =>
+    request<{ ok: boolean }>(`/templates/deployments/${id}/update`, { method: 'POST' }),
+  deploymentDelete: (id: string, removeVolumes = false) =>
+    request<{ ok: boolean }>(
+      `/templates/deployments/${id}/delete${removeVolumes ? '?volumes=true' : ''}`,
+      { method: 'POST' },
+    ),
 };

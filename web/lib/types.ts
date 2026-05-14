@@ -157,3 +157,87 @@ export interface NodeAppsResponse {
   pm2: NodeAppsPM2Meta;
   apps: NodeApp[];
 }
+
+export type TemplateFieldType = 'text' | 'password' | 'secret' | 'number' | 'textarea';
+
+export interface TemplateField {
+  key: string;
+  label: string;
+  type: TemplateFieldType;
+  required: boolean;
+  description?: string;
+  default?: string;
+  placeholder?: string;
+  group?: string;
+}
+
+export interface TemplatePortField {
+  key: string;
+  label: string;
+  default: number;
+  description?: string;
+}
+
+export interface TemplateDefinition {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  fields: TemplateField[];
+  ports: TemplatePortField[];
+  supports_update: boolean;
+}
+
+export interface TemplateEngineStatus {
+  available: boolean;
+  version?: string;
+  error?: string;
+}
+
+export interface TemplatesCatalogResponse {
+  engine: TemplateEngineStatus;
+  templates: TemplateDefinition[];
+}
+
+export type DeploymentStatus =
+  | 'pending'
+  | 'deploying'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'starting'
+  | 'updating'
+  | 'deleting'
+  | 'failed';
+
+export interface DeploymentSummary {
+  id: string;
+  template_id: string;
+  name: string;
+  slug: string;
+  status: DeploymentStatus;
+  message?: string;
+  ports: Record<string, number>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Deployment extends DeploymentSummary {
+  config: Record<string, string>;
+  env: Record<string, string>;
+  work_dir: string;
+}
+
+export interface DeploymentEvent {
+  id: number;
+  kind: string;
+  message: string;
+  created_at: string;
+}
+
+export interface DeployInput {
+  name: string;
+  config: Record<string, string>;
+  ports: Record<string, number>;
+  env: Record<string, string>;
+}

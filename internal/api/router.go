@@ -17,26 +17,29 @@ import (
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 	"github.com/ANASDAVOODTK/server-monitor/internal/nodejs"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
+	"github.com/ANASDAVOODTK/server-monitor/internal/templates"
 	"github.com/ANASDAVOODTK/server-monitor/internal/ws"
 )
 
 type Server struct {
-	cfg   *config.Config
-	store *store.Store
-	auth  *auth.Service
-	hub   *hub.Hub
-	ws    *ws.Server
-	ui    fs.FS // optional: embedded UI; can be nil during dev
+	cfg       *config.Config
+	store     *store.Store
+	auth      *auth.Service
+	hub       *hub.Hub
+	ws        *ws.Server
+	templates *templates.Service
+	ui        fs.FS // optional: embedded UI; can be nil during dev
 }
 
-func NewServer(cfg *config.Config, st *store.Store, a *auth.Service, h *hub.Hub, uiFS fs.FS) *Server {
+func NewServer(cfg *config.Config, st *store.Store, a *auth.Service, h *hub.Hub, tpl *templates.Service, uiFS fs.FS) *Server {
 	return &Server{
-		cfg:   cfg,
-		store: st,
-		auth:  a,
-		hub:   h,
-		ws:    ws.NewServer(h, cfg, a, h.Docker()),
-		ui:    uiFS,
+		cfg:       cfg,
+		store:     st,
+		auth:      a,
+		hub:       h,
+		ws:        ws.NewServer(h, cfg, a, h.Docker()),
+		templates: tpl,
+		ui:        uiFS,
 	}
 }
 
@@ -75,6 +78,16 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/node-apps/{pmId}/delete", s.handleNodeAppDelete)
 			r.Get("/history", s.handleHistory)
 			r.Get("/logs/sources", s.handleLogSources)
+			r.Get("/templates", s.handleTemplatesList)
+			r.Get("/templates/{templateId}", s.handleTemplateGet)
+			r.Post("/templates/{templateId}/deploy", s.handleTemplateDeploy)
+			r.Get("/templates/deployments", s.handleDeploymentsList)
+			r.Get("/templates/deployments/{id}", s.handleDeploymentGet)
+			r.Get("/templates/deployments/{id}/events", s.handleDeploymentEvents)
+			r.Post("/templates/deployments/{id}/start", s.handleDeploymentStart)
+			r.Post("/templates/deployments/{id}/stop", s.handleDeploymentStop)
+			r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
+			r.Post("/templates/deployments/{id}/delete", s.handleDeploymentDelete)
 		})
 	})
 
@@ -420,6 +433,123 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogSources(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.cfg.Logs.AllowedPaths)
+}
+
+// ---- Templates ----
+
+func (s *Server) handleTemplatesList(w http.ResponseWriter, r *http.Request) {
+	avail, ver, msg := s.templates.EngineStatus(r.Context())
+	writeJSON(w, 200, map[string]any{
+		"engine": map[string]any{
+			"available": avail,
+			"version":   ver,
+			"error":     msg,
+		},
+		"templates": s.templates.Definitions(),
+	})
+}
+
+func (s *Server) handleTemplateGet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "templateId")
+	def, err := s.templates.Definition(id)
+	if err != nil {
+		writeErr(w, 404, err.Error())
+		return
+	}
+	writeJSON(w, 200, def)
+}
+
+func (s *Server) handleTemplateDeploy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "templateId")
+	var input templates.DeployInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeErr(w, 400, "bad json")
+		return
+	}
+	d, err := s.templates.Deploy(r.Context(), id, input)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, d)
+}
+
+func (s *Server) handleDeploymentsList(w http.ResponseWriter, r *http.Request) {
+	list, err := s.templates.List(r.Context())
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if list == nil {
+		list = []templates.DeploymentSummary{}
+	}
+	writeJSON(w, 200, list)
+}
+
+func (s *Server) handleDeploymentGet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	d, err := s.templates.Get(r.Context(), id)
+	if err != nil {
+		writeErr(w, 404, err.Error())
+		return
+	}
+	writeJSON(w, 200, d)
+}
+
+func (s *Server) handleDeploymentEvents(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	limit := 100
+	if q := r.URL.Query().Get("limit"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	events, err := s.templates.Events(r.Context(), id, limit)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if events == nil {
+		events = []templates.Event{}
+	}
+	writeJSON(w, 200, events)
+}
+
+func (s *Server) handleDeploymentStart(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.templates.Start(r.Context(), id); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeploymentStop(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.templates.Stop(r.Context(), id); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeploymentUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.templates.Update(r.Context(), id); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeploymentDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	removeVolumes := r.URL.Query().Get("volumes") == "true"
+	if err := s.templates.Delete(r.Context(), id, removeVolumes); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, map[string]bool{"ok": true})
 }
 
 // SPA handler: serve embedded UI; for unknown extensionless paths fall back to index.html.

@@ -27,6 +27,37 @@ type MetricRow struct {
 	Payload   []byte // JSON snapshot
 }
 
+// TemplateDeployment is one provisioned template instance (e.g. a Supabase project).
+type TemplateDeployment struct {
+	ID         string
+	TemplateID string
+	Name       string
+	Slug       string
+	Status     string
+	Message    string
+	ConfigJSON []byte
+	PortsJSON  []byte
+	WorkDir    string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// TemplateDeploymentEvent captures a lifecycle action or status change.
+type TemplateDeploymentEvent struct {
+	ID           int64
+	DeploymentID string
+	Kind         string
+	Message      string
+	CreatedAt    time.Time
+}
+
+// TemplateDeploymentEnv holds one environment variable for a deployment.
+type TemplateDeploymentEnv struct {
+	Key    string
+	Value  string
+	Secret bool
+}
+
 func Open(dataDir string) (*Store, error) {
 	dsn := filepath.Join(dataDir, "monitor.db") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
@@ -65,6 +96,37 @@ func (s *Store) migrate() error {
 			payload BLOB NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metrics_long_ts ON metrics_long(ts)`,
+		`CREATE TABLE IF NOT EXISTS template_deployments (
+			id TEXT PRIMARY KEY,
+			template_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			slug TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL,
+			message TEXT NOT NULL DEFAULT '',
+			config_json BLOB NOT NULL,
+			ports_json BLOB NOT NULL,
+			work_dir TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_template_deployments_template ON template_deployments(template_id)`,
+		`CREATE TABLE IF NOT EXISTS template_deployment_env (
+			deployment_id TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL,
+			secret INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (deployment_id, key),
+			FOREIGN KEY (deployment_id) REFERENCES template_deployments(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS template_deployment_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			deployment_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			message TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			FOREIGN KEY (deployment_id) REFERENCES template_deployments(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_template_events_dep ON template_deployment_events(deployment_id, id)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -177,6 +239,170 @@ func (s *Store) Prune(ctx context.Context, table string, before time.Time) error
 	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE ts < ?`, before.Unix())
 	return err
+}
+
+// ---------- Template deployments ----------
+
+// CreateTemplateDeployment inserts a new deployment row plus its env list.
+func (s *Store) CreateTemplateDeployment(ctx context.Context, d TemplateDeployment, env []TemplateDeploymentEnv) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().Unix()
+	_, err = tx.ExecContext(ctx, `INSERT INTO template_deployments
+		(id, template_id, name, slug, status, message, config_json, ports_json, work_dir, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.TemplateID, d.Name, d.Slug, d.Status, d.Message, d.ConfigJSON, d.PortsJSON, d.WorkDir, now, now)
+	if err != nil {
+		return err
+	}
+	for _, e := range env {
+		secret := 0
+		if e.Secret {
+			secret = 1
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO template_deployment_env (deployment_id, key, value, secret) VALUES (?,?,?,?)`,
+			d.ID, e.Key, e.Value, secret); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// GetTemplateDeployment loads a deployment by ID. Returns nil if not found.
+func (s *Store) GetTemplateDeployment(ctx context.Context, id string) (*TemplateDeployment, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, template_id, name, slug, status, message, config_json, ports_json, work_dir, created_at, updated_at
+		 FROM template_deployments WHERE id = ?`, id)
+	var d TemplateDeployment
+	var created, updated int64
+	if err := row.Scan(&d.ID, &d.TemplateID, &d.Name, &d.Slug, &d.Status, &d.Message,
+		&d.ConfigJSON, &d.PortsJSON, &d.WorkDir, &created, &updated); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	d.CreatedAt = time.Unix(created, 0)
+	d.UpdatedAt = time.Unix(updated, 0)
+	return &d, nil
+}
+
+// ListTemplateDeployments returns all deployments ordered by created_at desc.
+func (s *Store) ListTemplateDeployments(ctx context.Context) ([]TemplateDeployment, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, template_id, name, slug, status, message, config_json, ports_json, work_dir, created_at, updated_at
+		 FROM template_deployments ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TemplateDeployment
+	for rows.Next() {
+		var d TemplateDeployment
+		var created, updated int64
+		if err := rows.Scan(&d.ID, &d.TemplateID, &d.Name, &d.Slug, &d.Status, &d.Message,
+			&d.ConfigJSON, &d.PortsJSON, &d.WorkDir, &created, &updated); err != nil {
+			return nil, err
+		}
+		d.CreatedAt = time.Unix(created, 0)
+		d.UpdatedAt = time.Unix(updated, 0)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// TemplateDeploymentSlugExists returns true if a deployment with that slug already exists.
+func (s *Store) TemplateDeploymentSlugExists(ctx context.Context, slug string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM template_deployments WHERE slug = ?`, slug).Scan(&n)
+	return n > 0, err
+}
+
+// UpdateTemplateDeploymentStatus changes status/message and bumps updated_at.
+func (s *Store) UpdateTemplateDeploymentStatus(ctx context.Context, id, status, message string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE template_deployments SET status = ?, message = ?, updated_at = ? WHERE id = ?`,
+		status, message, time.Now().Unix(), id)
+	return err
+}
+
+// DeleteTemplateDeployment removes the deployment and its env/events.
+func (s *Store) DeleteTemplateDeployment(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM template_deployment_env WHERE deployment_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM template_deployment_events WHERE deployment_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM template_deployments WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// GetTemplateDeploymentEnv returns all env vars for the deployment.
+func (s *Store) GetTemplateDeploymentEnv(ctx context.Context, deploymentID string) ([]TemplateDeploymentEnv, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key, value, secret FROM template_deployment_env WHERE deployment_id = ? ORDER BY key ASC`,
+		deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TemplateDeploymentEnv
+	for rows.Next() {
+		var e TemplateDeploymentEnv
+		var secret int
+		if err := rows.Scan(&e.Key, &e.Value, &secret); err != nil {
+			return nil, err
+		}
+		e.Secret = secret != 0
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// AppendTemplateDeploymentEvent records a status/lifecycle event.
+func (s *Store) AppendTemplateDeploymentEvent(ctx context.Context, deploymentID, kind, message string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO template_deployment_events (deployment_id, kind, message, created_at) VALUES (?,?,?,?)`,
+		deploymentID, kind, message, time.Now().Unix())
+	return err
+}
+
+// ListTemplateDeploymentEvents returns the most recent events for the deployment.
+func (s *Store) ListTemplateDeploymentEvents(ctx context.Context, deploymentID string, limit int) ([]TemplateDeploymentEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, deployment_id, kind, message, created_at FROM template_deployment_events
+		 WHERE deployment_id = ? ORDER BY id DESC LIMIT ?`, deploymentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TemplateDeploymentEvent
+	for rows.Next() {
+		var e TemplateDeploymentEvent
+		var created int64
+		if err := rows.Scan(&e.ID, &e.DeploymentID, &e.Kind, &e.Message, &created); err != nil {
+			return nil, err
+		}
+		e.CreatedAt = time.Unix(created, 0)
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // LatestShort returns the most recent N rows from metrics_short.
