@@ -373,6 +373,11 @@ func (s *Server) HandleDockerLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Check if the container was started with TTY — stdcopy only works for
+	// multiplexed (non-TTY) streams.
+	inspect, inspErr := cli.ContainerInspect(ctx, containerID)
+	isTTY := inspErr == nil && inspect.Config != nil && inspect.Config.Tty
+
 	logs, err := cli.ContainerLogs(ctx, containerID, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -386,11 +391,18 @@ func (s *Server) HandleDockerLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer logs.Close()
 
-	pr, pw := io.Pipe()
-	go func() {
-		defer pw.Close()
-		_, _ = stdcopy.StdCopy(pw, pw, logs)
-	}()
+	var reader io.Reader
+	if isTTY {
+		reader = logs
+	} else {
+		pr, pw := io.Pipe()
+		defer pr.Close()
+		go func() {
+			defer pw.Close()
+			_, _ = stdcopy.StdCopy(pw, pw, logs)
+		}()
+		reader = pr
+	}
 
 	buf := make([]byte, 4096)
 	for {
@@ -400,7 +412,7 @@ func (s *Server) HandleDockerLogs(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 
-		n, readErr := pr.Read(buf)
+		n, readErr := reader.Read(buf)
 		if n > 0 {
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if wErr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); wErr != nil {

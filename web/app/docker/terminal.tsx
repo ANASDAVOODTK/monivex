@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { wsBase } from '@/lib/ws';
 
 export default function DockerExecTerminal({
   containerId,
@@ -67,9 +68,8 @@ export default function DockerExecTerminal({
 
       terminal.writeln('\x1b[1;36m* Connecting to container...\x1b[0m');
 
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const q = new URLSearchParams({ shell });
-      const url = `${proto}://${window.location.host}/ws/docker/exec/${encodeURIComponent(containerId)}?${q}`;
+      const url = `${wsBase()}/ws/docker/exec/${encodeURIComponent(containerId)}?${q}`;
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;

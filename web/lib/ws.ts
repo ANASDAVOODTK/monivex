@@ -4,6 +4,21 @@ import { useEffect, useRef } from 'react';
 import { useMetrics } from './store';
 import type { Snapshot } from './types';
 
+/**
+ * Returns the WebSocket base URL (e.g. "ws://localhost:8080").
+ * In dev mode Next.js runs on port 3000 while the Go backend is on 8080,
+ * and Next.js rewrite rules can't proxy WebSocket upgrades. So we connect
+ * directly to the backend host. In production the static export is served
+ * by Go, so window.location.host is correct.
+ */
+export function wsBase(): string {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = process.env.NODE_ENV === 'development'
+    ? window.location.hostname + ':8080'
+    : window.location.host;
+  return `${proto}://${host}`;
+}
+
 export function useMetricsSocket() {
   const setSnapshot = useMetrics((s) => s.setSnapshot);
   const setConnected = useMetrics((s) => s.setConnected);
@@ -16,8 +31,7 @@ export function useMetricsSocket() {
 
     const connect = () => {
       if (cancelledRef.current) return;
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const url = `${proto}://${window.location.host}/ws/metrics`;
+      const url = `${wsBase()}/ws/metrics`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
@@ -54,8 +68,7 @@ export function useMetricsSocket() {
 }
 
 export function openLogSocket(path: string, onLine: (line: string) => void, onError: (msg: string) => void): WebSocket {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const url = `${proto}://${window.location.host}/ws/logs?path=${encodeURIComponent(path)}`;
+  const url = `${wsBase()}/ws/logs?path=${encodeURIComponent(path)}`;
   const ws = new WebSocket(url);
   ws.onmessage = (ev) => {
     try {
