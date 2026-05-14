@@ -148,11 +148,49 @@ func (s *Service) runDeploy(d *Deployment) {
 	defer cancel()
 	c := s.compose(d)
 	if out, err := c.Up(ctx); err != nil {
-		s.fail(ctx, d, "deploy", fmt.Errorf("%w\n%s", err, string(out)))
+		extra := s.collectFailureLogs(ctx, c, string(out))
+		s.fail(ctx, d, "deploy", fmt.Errorf("%w\n%s%s", err, string(out), extra))
 		return
 	}
 	_ = s.store.UpdateTemplateDeploymentStatus(ctx, d.ID, StatusRunning, "")
 	_ = s.store.AppendTemplateDeploymentEvent(ctx, d.ID, "deploy:done", "Deployment completed successfully")
+}
+
+// collectFailureLogs grabs the logs of any container that compose flagged as
+// failing inside `out`. Best effort: it's used purely to give the user an
+// actionable error message.
+func (s *Service) collectFailureLogs(ctx context.Context, c *Compose, out string) string {
+	services := extractFailingServices(out)
+	if len(services) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, svc := range services {
+		logs := c.Logs(ctx, svc, 200)
+		if len(logs) == 0 {
+			continue
+		}
+		b.WriteString("\n\n--- logs for ")
+		b.WriteString(svc)
+		b.WriteString(" ---\n")
+		b.Write(logs)
+	}
+	return b.String()
+}
+
+var failingServiceRe = regexp.MustCompile(`service "([^"]+)" didn't complete successfully`)
+
+func extractFailingServices(out string) []string {
+	matches := failingServiceRe.FindAllStringSubmatch(out, -1)
+	seen := map[string]bool{}
+	var svcs []string
+	for _, m := range matches {
+		if len(m) >= 2 && !seen[m[1]] {
+			seen[m[1]] = true
+			svcs = append(svcs, m[1])
+		}
+	}
+	return svcs
 }
 
 // Start brings a stopped deployment back online.

@@ -214,7 +214,26 @@ services:
       - ./volumes/db/init.sql:/init.sql:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "psql -v ON_ERROR_STOP=1 -f /init.sql"
+      - |
+        set -e
+        echo "[db-init] starting"
+        # pg_isready may go true before supabase/postgres has finished
+        # creating its internal roles. Block until supabase_auth_admin
+        # exists or we hit ~3 minutes - then bail loudly.
+        for i in $$(seq 1 90); do
+          ok=$$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='supabase_auth_admin'" 2>&1 || true)
+          if [ "$$ok" = "1" ]; then
+            echo "[db-init] supabase roles are present"
+            break
+          fi
+          echo "[db-init] waiting for supabase roles (attempt $$i): $$ok"
+          sleep 2
+        done
+        echo "[db-init] /init.sql contents:"
+        sed -e 's/^/[db-init] | /' /init.sql
+        echo "[db-init] applying /init.sql"
+        psql -v ON_ERROR_STOP=1 -f /init.sql
+        echo "[db-init] done"
 
 volumes:
   db-data:

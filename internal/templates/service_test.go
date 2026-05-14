@@ -4,6 +4,23 @@ import (
 	"testing"
 )
 
+func TestExtractFailingServices(t *testing.T) {
+	out := `Container foo-db-init-1 Error service "db-init" didn't complete successfully: exit 3
+Container foo-db-init-1 Error service "db-init" didn't complete successfully: exit 3
+service "db-init" didn't complete successfully: exit 3
+service "other" didn't complete successfully: exit 1`
+	got := extractFailingServices(out)
+	want := []string{"db-init", "other"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, s := range want {
+		if got[i] != s {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], s)
+		}
+	}
+}
+
 func TestMakeSlug(t *testing.T) {
 	cases := map[string]string{
 		"My Supabase":    "my-supabase",

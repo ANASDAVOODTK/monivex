@@ -97,3 +97,13 @@ func (c *Compose) Down(ctx context.Context, removeVolumes bool) ([]byte, error) 
 func (c *Compose) PS(ctx context.Context) ([]byte, error) {
 	return c.run(ctx, 30*time.Second, "ps", "--format", "json", "--all")
 }
+
+// Logs returns the last `tail` lines of the given service's container.
+// Best-effort: errors return whatever output we already collected.
+func (c *Compose) Logs(ctx context.Context, service string, tail int) []byte {
+	if tail <= 0 {
+		tail = 200
+	}
+	out, _ := c.run(ctx, 30*time.Second, "logs", "--no-color", "--tail", fmt.Sprintf("%d", tail), service)
+	return out
+}

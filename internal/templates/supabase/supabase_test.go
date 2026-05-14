@@ -114,6 +114,8 @@ func TestRenderProducesAllArtifacts(t *testing.T) {
 		"supabase_auth_admin",
 		"supabase_storage_admin",
 		"authenticator",
+		"FOREACH role_name",
+		"ALTER USER %I WITH PASSWORD %L",
 		"CREATE SCHEMA IF NOT EXISTS _realtime",
 		"CREATE SCHEMA IF NOT EXISTS supabase_functions",
 		"app.settings.jwt_secret",
