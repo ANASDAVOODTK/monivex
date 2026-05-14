@@ -8,16 +8,79 @@ export default function DockerLogsTerminal({
   containerId: string;
 }) {
   const termRef = useRef<HTMLDivElement>(null);
-  const initRef = useRef(false);
 
   useEffect(() => {
-    if (initRef.current || !termRef.current) return;
-    initRef.current = true;
+    if (!termRef.current) return;
     const element = termRef.current;
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let resizeObserver: ResizeObserver | null = null;
 
     let terminal: any;
     let fitAddon: any;
-    let ws: WebSocket;
+    let ws: WebSocket | null = null;
+
+    function clearReconnectTimer() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    }
+
+    function safeWrite(data: unknown) {
+      if (!terminal || data == null) return;
+      if (data instanceof Uint8Array) {
+        terminal.write(data);
+        return;
+      }
+      if (data instanceof ArrayBuffer) {
+        terminal.write(new Uint8Array(data));
+        return;
+      }
+      if (typeof data === 'string') {
+        terminal.write(data);
+      }
+    }
+
+    function scheduleReconnect() {
+      if (disposed || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (!disposed) connect();
+      }, 1500);
+    }
+
+    function connect() {
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${window.location.host}/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`;
+      ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        if (disposed) return;
+        terminal.writeln('\x1b[1;32m* Connected. Streaming logs...\x1b[0m\r\n');
+      };
+
+      ws.onmessage = async (ev) => {
+        if (disposed) return;
+        if (ev.data instanceof Blob) {
+          safeWrite(await ev.data.text());
+          return;
+        }
+        safeWrite(ev.data);
+      };
+
+      ws.onerror = () => {
+        if (disposed) return;
+        terminal.writeln('\r\n\x1b[1;31m* Connection error.\x1b[0m');
+      };
+
+      ws.onclose = () => {
+        if (disposed) return;
+        terminal.writeln('\r\n\x1b[1;33m* Log stream disconnected. Reconnecting...\x1b[0m');
+        scheduleReconnect();
+      };
+    }
 
     async function init() {
       const { Terminal } = await import('@xterm/xterm');
@@ -62,51 +125,31 @@ export default function DockerLogsTerminal({
       fitAddon.fit();
 
       terminal.writeln('\x1b[1;36m* Connecting to log stream...\x1b[0m');
+      connect();
 
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const url = `${proto}://${window.location.host}/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`;
-      ws = new WebSocket(url);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        terminal.writeln('\x1b[1;32m* Connected. Streaming logs...\x1b[0m\r\n');
-      };
-
-      ws.onmessage = (ev) => {
-        if (ev.data instanceof ArrayBuffer) {
-          terminal.write(new Uint8Array(ev.data));
-        } else {
-          terminal.write(ev.data);
-        }
-      };
-
-      ws.onerror = () => {
-        terminal.writeln('\r\n\x1b[1;31m* Connection error.\x1b[0m');
-      };
-
-      ws.onclose = () => {
-        terminal.writeln('\r\n\x1b[1;33m* Log stream ended.\x1b[0m');
-      };
-
-      const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
+      resizeObserver = new ResizeObserver(() => {
+        if (!disposed) fitAddon.fit();
       });
       resizeObserver.observe(element);
 
       terminal.focus();
-
-      (element as any)._cleanup = () => {
-        resizeObserver.disconnect();
-        ws.close();
-        terminal.dispose();
-      };
     }
 
-    init();
+    init().catch((err) => {
+      console.error('docker logs terminal init failed', err);
+    });
 
     return () => {
-      if ((element as any)._cleanup) {
-        (element as any)._cleanup();
+      disposed = true;
+      clearReconnectTimer();
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close();
+      }
+      if (terminal) {
+        terminal.dispose();
       }
     };
   }, [containerId]);
