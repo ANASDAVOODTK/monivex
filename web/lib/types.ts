@@ -248,3 +248,10 @@ export interface DeployInput {
   ports: Record<string, number>;
   env: Record<string, string>;
 }
+
+export interface EditInput {
+  config?: Record<string, string>;
+  ports?: Record<string, number>;
+  env?: Record<string, string>;
+  restart?: boolean;
+}

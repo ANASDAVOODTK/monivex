@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/templates/deployments/{id}/start", s.handleDeploymentStart)
 			r.Post("/templates/deployments/{id}/stop", s.handleDeploymentStop)
 			r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
+			r.Post("/templates/deployments/{id}/edit", s.handleDeploymentEdit)
 			r.Post("/templates/deployments/{id}/delete", s.handleDeploymentDelete)
 		})
 	})
@@ -552,6 +553,21 @@ func (s *Server) handleDeploymentUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, 202, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeploymentEdit(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var input templates.EditInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeErr(w, 400, "bad json")
+		return
+	}
+	d, err := s.templates.UpdateConfig(r.Context(), id, input)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, d)
 }
 
 func (s *Server) handleDeploymentDelete(w http.ResponseWriter, r *http.Request) {

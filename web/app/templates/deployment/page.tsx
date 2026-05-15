@@ -6,17 +6,20 @@ import { useSearchParams } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
-import type { Deployment, DeploymentEvent } from '@/lib/types';
+import type { Deployment, DeploymentEvent, TemplateDefinition } from '@/lib/types';
 import {
   ArrowLeft,
   Boxes,
   Clock,
   Loader2,
+  Pencil,
   Play,
   RefreshCw,
   RotateCcw,
+  Save,
   Square,
   Trash2,
+  X,
 } from 'lucide-react';
 
 const SECRET_HINTS = ['password', 'secret', 'token', 'key'];
@@ -44,6 +47,7 @@ function DeploymentDetail() {
   const [err, setErr] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
+  const [editing, setEditing] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!id) {
@@ -184,11 +188,19 @@ function DeploymentDetail() {
           )}
           <button
             disabled={inFlight || actionBusy !== null}
+            onClick={() => setEditing(true)}
+            className="btn-secondary"
+          >
+            <Pencil className="size-4" />
+            Edit configuration
+          </button>
+          <button
+            disabled={inFlight || actionBusy !== null}
             onClick={() => run('update', () => api.deploymentUpdate(dep.id))}
             className="btn-secondary"
           >
             {actionBusy === 'update' ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
-            Update
+            Pull & restart
           </button>
           <button
             disabled={inFlight || actionBusy !== null}
@@ -270,6 +282,190 @@ function DeploymentDetail() {
           Compose file and rendered env live in this directory on the host running server-monitor.
         </div>
       </section>
+
+      {editing && (
+        <EditConfigDialog
+          dep={dep}
+          onClose={() => setEditing(false)}
+          onSaved={async () => {
+            setEditing(false);
+            await refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditConfigDialog({
+  dep,
+  onClose,
+  onSaved,
+}: {
+  dep: Deployment;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [def, setDef] = useState<TemplateDefinition | null>(null);
+  const [config, setConfig] = useState<Record<string, string>>({ ...dep.config });
+  const [ports, setPorts] = useState<Record<string, string>>(
+    Object.fromEntries(Object.entries(dep.ports).map(([k, v]) => [k, String(v)])),
+  );
+  const [restart, setRestart] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .templateGet(dep.template_id)
+      .then((d) => {
+        if (!cancelled) setDef(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadErr(e instanceof Error ? e.message : 'Failed to load template');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dep.template_id]);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const portsNum: Record<string, number> = {};
+      for (const [k, v] of Object.entries(ports)) {
+        const n = parseInt(v, 10);
+        if (!Number.isFinite(n) || n <= 0 || n > 65535) {
+          throw new Error(`Port "${k}" must be between 1 and 65535`);
+        }
+        portsNum[k] = n;
+      }
+      await api.deploymentEdit(dep.id, { config, ports: portsNum, restart });
+      await onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4 py-8">
+      <div className="card flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
+          <div>
+            <div className="text-sm font-semibold">Edit configuration</div>
+            <div className="text-xs text-fg-muted">{dep.name}</div>
+          </div>
+          <button type="button" onClick={onClose} className="btn-ghost p-2" aria-label="Close">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {loadErr && <Notice tone="danger">{loadErr}</Notice>}
+          {err && <Notice tone="danger">{err}</Notice>}
+
+          {!def ? (
+            <div className="flex items-center gap-2 text-sm text-fg-muted">
+              <Loader2 className="size-4 animate-spin text-accent" />
+              Loading template definition
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                  Fields
+                </div>
+                <div className="space-y-3">
+                  {def.fields
+                    .filter((f) => f.type !== 'secret' && f.type !== 'password')
+                    .map((f) => (
+                      <label key={f.key} className="block space-y-1">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-xs font-medium">{f.label}</span>
+                          <span className="font-mono text-[10px] text-fg-subtle">{f.key}</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={config[f.key] ?? ''}
+                          onChange={(e) =>
+                            setConfig((p) => ({ ...p, [f.key]: e.target.value }))
+                          }
+                          placeholder={f.placeholder || ''}
+                          className="input w-full"
+                        />
+                        {f.description && (
+                          <div className="text-[11px] text-fg-subtle">{f.description}</div>
+                        )}
+                      </label>
+                    ))}
+                </div>
+                <div className="text-[11px] text-fg-subtle">
+                  Secrets and passwords are intentionally not editable here. To rotate them, redeploy the template.
+                </div>
+              </div>
+
+              {def.ports.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                    Host ports
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {def.ports.map((p) => (
+                      <label key={p.key} className="space-y-1">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-xs font-medium">{p.label}</span>
+                          <span className="font-mono text-[10px] text-fg-subtle">{p.key}</span>
+                        </div>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          value={ports[p.key] ?? ''}
+                          onChange={(e) => setPorts((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                          className="input w-full font-mono"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="text-[11px] text-fg-subtle">
+                    Changing a host port requires a restart. The new port must not be in use by another deployment.
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-white/10 px-5 py-3">
+          <label className="flex items-center gap-2 text-xs text-fg-muted">
+            <input
+              type="checkbox"
+              checked={restart}
+              onChange={(e) => setRestart(e.target.checked)}
+              className="h-4 w-4 rounded border-white/20 bg-white/5 text-accent focus:ring-accent"
+            />
+            Restart containers to apply changes
+          </label>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onClose} className="btn-ghost" disabled={busy}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={busy || !def}
+              className="btn-primary"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

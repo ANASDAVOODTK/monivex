@@ -68,6 +68,11 @@ export const api = {
     request<{ ok: boolean }>(`/templates/deployments/${id}/stop`, { method: 'POST' }),
   deploymentUpdate: (id: string) =>
     request<{ ok: boolean }>(`/templates/deployments/${id}/update`, { method: 'POST' }),
+  deploymentEdit: (id: string, body: import('./types').EditInput) =>
+    request<import('./types').Deployment>(`/templates/deployments/${id}/edit`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   deploymentDelete: (id: string, removeVolumes = false) =>
     request<{ ok: boolean }>(
       `/templates/deployments/${id}/delete${removeVolumes ? '?volumes=true' : ''}`,

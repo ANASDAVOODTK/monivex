@@ -331,6 +331,39 @@ func (s *Store) UpdateTemplateDeploymentStatus(ctx context.Context, id, status, 
 	return err
 }
 
+// UpdateTemplateDeploymentConfig overwrites config_json / ports_json and the
+// env rows for the deployment in a single transaction. Used by the in-place
+// edit feature so users can change values like Site URL after the initial
+// deploy.
+func (s *Store) UpdateTemplateDeploymentConfig(ctx context.Context, id string, configJSON, portsJSON []byte, env []TemplateDeploymentEnv) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE template_deployments SET config_json = ?, ports_json = ?, updated_at = ? WHERE id = ?`,
+		configJSON, portsJSON, time.Now().Unix(), id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM template_deployment_env WHERE deployment_id = ?`, id); err != nil {
+		return err
+	}
+	for _, e := range env {
+		secret := 0
+		if e.Secret {
+			secret = 1
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO template_deployment_env (deployment_id, key, value, secret) VALUES (?,?,?,?)`,
+			id, e.Key, e.Value, secret); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // DeleteTemplateDeployment removes the deployment and its env/events.
 func (s *Store) DeleteTemplateDeployment(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)

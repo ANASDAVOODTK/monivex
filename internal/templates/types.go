@@ -102,3 +102,17 @@ type DeployInput struct {
 	Ports  map[string]int    `json:"ports"`
 	Env    map[string]string `json:"env"`
 }
+
+// EditInput captures the patch applied by the in-place "Edit configuration"
+// flow for an existing deployment. Only Config / Env / Ports are mutable;
+// the deployment ID, template ID and slug are pinned.
+//
+// Restart controls whether the service should re-render artifacts and bounce
+// the running containers immediately, or just persist the new values for the
+// next start.
+type EditInput struct {
+	Config  map[string]string `json:"config"`
+	Ports   map[string]int    `json:"ports"`
+	Env     map[string]string `json:"env"`
+	Restart bool              `json:"restart"`
+}

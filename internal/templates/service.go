@@ -246,6 +246,87 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdateConfig applies a configuration patch to an existing deployment,
+// re-renders the artifacts on disk and (optionally) restarts the containers
+// so the new values take effect. Ports already in use by other deployments
+// are rejected. The deployment slug, template ID and ID are pinned.
+func (s *Service) UpdateConfig(ctx context.Context, id string, input EditInput) (*Deployment, error) {
+	d, driver, err := s.load(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	def := driver.Definition()
+
+	// Build a synthetic DeployInput that combines the existing values with
+	// the patch so MergeConfig keeps any field the user didn't touch.
+	merged := DeployInput{Name: d.Name, Config: map[string]string{}, Ports: map[string]int{}, Env: map[string]string{}}
+	for k, v := range d.Config {
+		merged.Config[k] = v
+	}
+	for k, v := range input.Config {
+		merged.Config[k] = v
+	}
+	for k, v := range d.Ports {
+		merged.Ports[k] = v
+	}
+	for k, v := range input.Ports {
+		if v > 0 {
+			merged.Ports[k] = v
+		}
+	}
+	for k, v := range d.Env {
+		merged.Env[k] = v
+	}
+	for k, v := range input.Env {
+		merged.Env[k] = v
+	}
+	if err := driver.Validate(merged); err != nil {
+		return nil, err
+	}
+	config, ports, env := MergeConfig(def, merged)
+	if err := s.assertPortsFree(ctx, ports, id); err != nil {
+		return nil, err
+	}
+	d.Config = config
+	d.Ports = ports
+	d.Env = env
+
+	cfgJSON, _ := json.Marshal(d.Config)
+	portsJSON, _ := json.Marshal(d.Ports)
+	envRows := make([]store.TemplateDeploymentEnv, 0, len(env))
+	for k, v := range env {
+		envRows = append(envRows, store.TemplateDeploymentEnv{Key: k, Value: v, Secret: false})
+	}
+	if err := s.store.UpdateTemplateDeploymentConfig(ctx, id, cfgJSON, portsJSON, envRows); err != nil {
+		return nil, fmt.Errorf("persist: %w", err)
+	}
+	if err := s.writeArtifacts(driver, d); err != nil {
+		return nil, fmt.Errorf("render: %w", err)
+	}
+	_ = s.store.AppendTemplateDeploymentEvent(ctx, id, "edit", "Configuration updated")
+
+	if input.Restart {
+		if err := s.store.UpdateTemplateDeploymentStatus(ctx, id, StatusUpdating, ""); err != nil {
+			return nil, err
+		}
+		_ = s.store.AppendTemplateDeploymentEvent(ctx, id, "edit:restart", "Restarting to apply changes")
+		go func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			ctx2, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			c := s.compose(d)
+			if out, err := c.Up(ctx2); err != nil {
+				s.fail(ctx2, d, "edit", fmt.Errorf("up: %w\n%s", err, string(out)))
+				return
+			}
+			_ = s.store.UpdateTemplateDeploymentStatus(ctx2, id, StatusRunning, "")
+			_ = s.store.AppendTemplateDeploymentEvent(ctx2, id, "edit:done", "Configuration applied; containers restarted")
+		}()
+	}
+	return d, nil
+}
+
 // Update pulls the latest images and re-runs `compose up`.
 func (s *Service) Update(ctx context.Context, id string) error {
 	d, driver, err := s.load(ctx, id)
