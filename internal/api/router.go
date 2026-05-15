@@ -606,6 +606,9 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 }
 
 // SPA handler: serve embedded UI; for unknown extensionless paths fall back to index.html.
+// When Next.js exports with trailingSlash:false, pages become <name>.html (e.g. login.html).
+// We try <path>.html first so each page's own bundle loads, then fall back to index.html
+// for truly dynamic client-side routes.
 func (s *Server) spaHandler() http.Handler {
 	fileServer := http.FileServer(http.FS(s.ui))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -616,17 +619,25 @@ func (s *Server) spaHandler() http.Handler {
 			fileServer.ServeHTTP(w, &r2)
 			return
 		}
-		if _, err := fs.Stat(s.ui, clean); err != nil {
-			if filepath.Ext(clean) == "" {
-				// SPA route — serve index.html so client-side router takes over.
+		// Exact file exists (e.g. _next/static/..., favicon.ico)
+		if _, err := fs.Stat(s.ui, clean); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Extensionless path — try <path>.html first (Next.js static export)
+		if filepath.Ext(clean) == "" {
+			if _, err := fs.Stat(s.ui, clean+".html"); err == nil {
 				r2 := *r
-				r2.URL.Path = "/index.html"
+				r2.URL.Path = "/" + clean + ".html"
 				fileServer.ServeHTTP(w, &r2)
 				return
 			}
-			http.NotFound(w, r)
+			// True SPA fallback — serve index.html for client-side routing
+			r2 := *r
+			r2.URL.Path = "/index.html"
+			fileServer.ServeHTTP(w, &r2)
 			return
 		}
-		fileServer.ServeHTTP(w, r)
+		http.NotFound(w, r)
 	})
 }
