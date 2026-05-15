@@ -52,11 +52,33 @@ export default function DockerLogsTerminal({
     }
 
     function connect() {
-      const url = wsUrl(`/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`);
-      ws = new WebSocket(url);
+      let url: string;
+      try {
+        url = wsUrl(`/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`);
+      } catch (err) {
+        terminal.writeln(`\r\n\x1b[1;31m* Failed to build URL: ${(err as Error).message}\x1b[0m`);
+        return;
+      }
+      terminal.writeln(`\x1b[2;37m* URL: ${url}\x1b[0m`);
+
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        terminal.writeln(`\r\n\x1b[1;31m* WebSocket constructor failed: ${(err as Error).message}\x1b[0m`);
+        return;
+      }
       ws.binaryType = 'arraybuffer';
 
+      const watchdog = setTimeout(() => {
+        if (disposed || !ws) return;
+        if (ws.readyState === WebSocket.CONNECTING) {
+          terminal.writeln('\r\n\x1b[1;31m* Still CONNECTING after 8s. Likely the backend is unreachable, blocked by firewall, or auth was rejected.\x1b[0m');
+          terminal.writeln('\x1b[2;37m  Hint: in dev the WS goes to <host>:8080 directly. Make sure the Go server is reachable on that port and you have logged in again since the cookie was made non-HttpOnly.\x1b[0m');
+        }
+      }, 8000);
+
       ws.onopen = () => {
+        clearTimeout(watchdog);
         if (disposed) return;
         terminal.writeln('\x1b[1;32m* Connected. Streaming logs...\x1b[0m\r\n');
       };
@@ -70,14 +92,20 @@ export default function DockerLogsTerminal({
         safeWrite(ev.data);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (ev) => {
+        clearTimeout(watchdog);
         if (disposed) return;
-        terminal.writeln('\r\n\x1b[1;31m* Connection error.\x1b[0m');
+        // Browsers don't expose the underlying error, but logging the event
+        // type at least confirms we got here and the URL was attempted.
+        console.error('docker logs ws error', ev);
+        terminal.writeln('\r\n\x1b[1;31m* Connection error (see browser console).\x1b[0m');
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        clearTimeout(watchdog);
         if (disposed) return;
-        terminal.writeln('\r\n\x1b[1;33m* Log stream disconnected. Reconnecting...\x1b[0m');
+        const reason = ev.reason ? ` reason="${ev.reason}"` : '';
+        terminal.writeln(`\r\n\x1b[1;33m* Log stream closed (code=${ev.code} clean=${ev.wasClean}${reason}). Reconnecting in 1.5s...\x1b[0m`);
         scheduleReconnect();
       };
     }
