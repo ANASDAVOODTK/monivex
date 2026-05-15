@@ -15,6 +15,10 @@ import type { Snapshot } from './types';
  * In production the static export is served by Go on the same origin.
  */
 export function wsBase(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_BASE?.trim();
+  if (explicit) {
+    return explicit.replace(/\/+$/, '');
+  }
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${window.location.host}`;
 }

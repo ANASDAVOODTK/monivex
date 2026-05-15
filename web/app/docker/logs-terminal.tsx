@@ -195,7 +195,8 @@ export default function DockerLogsTerminal({
       terminal.open(element);
       fitAddon.fit();
 
-      terminal.writeln('\x1b[1;36m* Connecting to log stream...\x1b[0m');
+      terminal.writeln('\x1b[1;36m* Connecting to log stream... (diag v3)\x1b[0m');
+      terminal.writeln('\x1b[2;37m* If you only see this line, your dev frontend was not restarted.\x1b[0m');
       connect();
 
       resizeObserver = new ResizeObserver(() => {

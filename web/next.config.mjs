@@ -1,3 +1,5 @@
+const backendOrigin = process.env.SM_BACKEND_ORIGIN || 'http://localhost:8080';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
@@ -7,8 +9,8 @@ const nextConfig = {
     ? {
         async rewrites() {
           return [
-            { source: '/api/:path*', destination: 'http://localhost:8080/api/:path*' },
-            { source: '/ws/:path*', destination: 'http://localhost:8080/ws/:path*' },
+            { source: '/api/:path*', destination: `${backendOrigin}/api/:path*` },
+            { source: '/ws/:path*', destination: `${backendOrigin}/ws/:path*` },
           ];
         },
       }
