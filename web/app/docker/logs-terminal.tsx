@@ -73,6 +73,7 @@ export default function DockerLogsTerminal({
     }
 
     function connect() {
+      try {
       const hasToken = /(?:^|;\s*)sm_token=/.test(document.cookie);
       logLine('2;37', `cookie has sm_token: ${hasToken ? 'yes' : 'NO (cookie is HttpOnly or you are not logged in)'}`);
       if (!hasToken) {
@@ -151,6 +152,14 @@ export default function DockerLogsTerminal({
         logLine('2;37', 'Reconnecting in 1.5s...');
         scheduleReconnect();
       };
+      } catch (err) {
+        // Absolute fallback so unexpected runtime errors are visible in-terminal.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (terminal && !disposed) {
+          terminal.writeln(`\x1b[1;31m* connect() crashed: ${msg}\x1b[0m`);
+        }
+        console.error('docker logs connect() crashed', err);
+      }
     }
 
     async function init() {
@@ -197,7 +206,13 @@ export default function DockerLogsTerminal({
 
       terminal.writeln('\x1b[1;36m* Connecting to log stream... (diag v3)\x1b[0m');
       terminal.writeln('\x1b[2;37m* If you only see this line, your dev frontend was not restarted.\x1b[0m');
-      connect();
+      try {
+        connect();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        terminal.writeln(`\x1b[1;31m* init->connect crashed: ${msg}\x1b[0m`);
+        console.error('docker logs init->connect crashed', err);
+      }
 
       resizeObserver = new ResizeObserver(() => {
         if (!disposed) fitAddon.fit();
