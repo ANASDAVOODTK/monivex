@@ -607,16 +607,19 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 // SPA handler: serve embedded UI; for unknown extensionless paths fall back to index.html.
 // When Next.js exports with trailingSlash:false, pages become <name>.html (e.g. login.html).
-// We try <path>.html first so each page's own bundle loads, then fall back to index.html
-// for truly dynamic client-side routes.
+//
+// IMPORTANT: Go's http.FileServer automatically 301-redirects requests for
+// /index.html → / and /<page>.html → /<page>. If we rewrite paths to .html
+// and pass them through FileServer, we get infinite redirect loops.
+// To avoid this, we read .html fallback files directly from the FS via
+// serveFromFS, and only use FileServer for real static assets (JS, CSS, images).
 func (s *Server) spaHandler() http.Handler {
 	fileServer := http.FileServer(http.FS(s.ui))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := strings.TrimPrefix(r.URL.Path, "/")
 		if clean == "" {
-			r2 := *r
-			r2.URL.Path = "/index.html"
-			fileServer.ServeHTTP(w, &r2)
+			// Serve index.html directly (bypassing FileServer to avoid redirect)
+			s.serveFromFS(w, r, "index.html")
 			return
 		}
 		// Exact file exists (e.g. _next/static/..., favicon.ico)
@@ -627,17 +630,27 @@ func (s *Server) spaHandler() http.Handler {
 		// Extensionless path — try <path>.html first (Next.js static export)
 		if filepath.Ext(clean) == "" {
 			if _, err := fs.Stat(s.ui, clean+".html"); err == nil {
-				r2 := *r
-				r2.URL.Path = "/" + clean + ".html"
-				fileServer.ServeHTTP(w, &r2)
+				s.serveFromFS(w, r, clean+".html")
 				return
 			}
 			// True SPA fallback — serve index.html for client-side routing
-			r2 := *r
-			r2.URL.Path = "/index.html"
-			fileServer.ServeHTTP(w, &r2)
+			s.serveFromFS(w, r, "index.html")
 			return
 		}
 		http.NotFound(w, r)
 	})
+}
+
+// serveFromFS reads a file directly from the embedded FS and writes it to
+// the response. This bypasses http.FileServer's automatic redirect behavior.
+func (s *Server) serveFromFS(w http.ResponseWriter, r *http.Request, name string) {
+	data, err := fs.ReadFile(s.ui, name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.HasSuffix(name, ".html") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+	w.Write(data)
 }
