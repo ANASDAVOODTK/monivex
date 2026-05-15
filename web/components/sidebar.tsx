@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  ArrowLeft,
   Boxes,
   Container,
   Cpu,
@@ -17,21 +18,29 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export const NAV = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { href: '/gpu', label: 'GPU', icon: Cpu },
-  { href: '/processes', label: 'Processes', icon: Activity },
-  { href: '/services', label: 'Services', icon: ListTree },
-  { href: '/node-apps', label: 'Node apps', icon: Package },
-  { href: '/docker', label: 'Docker', icon: Container },
-  { href: '/templates', label: 'Templates', icon: Boxes },
-  { href: '/disks', label: 'Disks', icon: HardDrive },
-  { href: '/logs', label: 'Logs', icon: ScrollText },
-  { href: '/settings', label: 'Settings', icon: Settings },
+export const NAV_TEMPLATE = [
+  { suffix: '', label: 'Overview', icon: LayoutDashboard },
+  { suffix: '/gpu', label: 'GPU', icon: Cpu },
+  { suffix: '/processes', label: 'Processes', icon: Activity },
+  { suffix: '/services', label: 'Services', icon: ListTree },
+  { suffix: '/node-apps', label: 'Node apps', icon: Package },
+  { suffix: '/docker', label: 'Docker', icon: Container },
+  { suffix: '/templates', label: 'Templates', icon: Boxes },
+  { suffix: '/disks', label: 'Disks', icon: HardDrive },
+  { suffix: '/logs', label: 'Logs', icon: ScrollText },
 ];
 
-export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
+export function Sidebar({
+  serverId,
+  mobile = false,
+  onNavigate,
+}: {
+  serverId?: string;
+  mobile?: boolean;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const base = serverId ? `/servers/${encodeURIComponent(serverId)}` : '';
 
   return (
     <aside
@@ -52,28 +61,68 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         </div>
       </div>
 
-      <nav className="flex-1 px-3 space-y-1">
-        {NAV.map((item) => {
-          const Icon = item.icon;
-          const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+      {serverId && (
+        <Link
+          href="/"
+          onClick={onNavigate}
+          className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-fg-muted transition-colors hover:border-accent/30 hover:bg-white/[0.04] hover:text-fg"
+        >
+          <ArrowLeft className="size-3.5" />
+          All servers
+        </Link>
+      )}
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                'group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors',
-                active
-                  ? 'border-accent/30 bg-accent/[0.12] text-fg shadow-glow'
-                  : 'border-transparent text-fg-muted hover:border-white/10 hover:bg-white/[0.045] hover:text-fg',
-              )}
-            >
-              <Icon className={cn('size-4', active ? 'text-accent' : 'text-fg-subtle group-hover:text-fg-muted')} />
-              <span className="truncate">{item.label}</span>
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-3 space-y-1">
+        {serverId &&
+          NAV_TEMPLATE.map((item) => {
+            const Icon = item.icon;
+            const href = base + item.suffix;
+            const active =
+              item.suffix === ''
+                ? pathname === base || pathname === base + '/'
+                : pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={onNavigate}
+                className={cn(
+                  'group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors',
+                  active
+                    ? 'border-accent/30 bg-accent/[0.12] text-fg shadow-glow'
+                    : 'border-transparent text-fg-muted hover:border-white/10 hover:bg-white/[0.045] hover:text-fg',
+                )}
+              >
+                <Icon
+                  className={cn(
+                    'size-4',
+                    active ? 'text-accent' : 'text-fg-subtle group-hover:text-fg-muted',
+                  )}
+                />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          className={cn(
+            'group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors',
+            pathname.startsWith('/settings')
+              ? 'border-accent/30 bg-accent/[0.12] text-fg shadow-glow'
+              : 'border-transparent text-fg-muted hover:border-white/10 hover:bg-white/[0.045] hover:text-fg',
+          )}
+        >
+          <Settings
+            className={cn(
+              'size-4',
+              pathname.startsWith('/settings')
+                ? 'text-accent'
+                : 'text-fg-subtle group-hover:text-fg-muted',
+            )}
+          />
+          <span className="truncate">Settings</span>
+        </Link>
       </nav>
 
       <div className="m-4 rounded-lg border border-white/10 bg-white/[0.035] p-3">

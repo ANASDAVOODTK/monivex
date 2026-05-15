@@ -22,6 +22,29 @@ type User struct {
 	CreatedAt    time.Time
 }
 
+// APIKey is a long-lived credential a remote hub uses to call this agent's API.
+type APIKey struct {
+	ID         string
+	Name       string
+	KeyHash    string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
+// Server is a row in the hub's servers registry. is_self=1 marks the local instance.
+type Server struct {
+	ID         string
+	Name       string
+	BaseURL    string
+	APIKeyEnc  string // empty for self
+	IsSelf     bool
+	Enabled    bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	LastOkAt   *time.Time
+	LastError  string
+}
+
 type MetricRow struct {
 	Timestamp time.Time
 	Payload   []byte // JSON snapshot
@@ -127,6 +150,26 @@ func (s *Store) migrate() error {
 			FOREIGN KEY (deployment_id) REFERENCES template_deployments(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_template_events_dep ON template_deployment_events(deployment_id, id)`,
+		`CREATE TABLE IF NOT EXISTS api_keys (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			created_at INTEGER NOT NULL,
+			last_used_at INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS servers (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			base_url TEXT NOT NULL,
+			api_key_enc TEXT NOT NULL DEFAULT '',
+			is_self INTEGER NOT NULL DEFAULT 0,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			last_ok_at INTEGER,
+			last_error TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_self ON servers(is_self) WHERE is_self = 1`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -436,6 +479,177 @@ func (s *Store) ListTemplateDeploymentEvents(ctx context.Context, deploymentID s
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// ---------- API Keys ----------
+
+// CreateAPIKey persists a new API key. hash is the bcrypt or sha256 hex of the secret.
+func (s *Store) CreateAPIKey(ctx context.Context, id, name, hash string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO api_keys (id, name, key_hash, created_at) VALUES (?, ?, ?, ?)`,
+		id, name, hash, time.Now().Unix())
+	return err
+}
+
+// ListAPIKeys returns metadata for all API keys (no secrets).
+func (s *Store) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, key_hash, created_at, last_used_at FROM api_keys ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []APIKey
+	for rows.Next() {
+		var k APIKey
+		var created int64
+		var lastUsed sql.NullInt64
+		if err := rows.Scan(&k.ID, &k.Name, &k.KeyHash, &created, &lastUsed); err != nil {
+			return nil, err
+		}
+		k.CreatedAt = time.Unix(created, 0)
+		if lastUsed.Valid {
+			t := time.Unix(lastUsed.Int64, 0)
+			k.LastUsedAt = &t
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+// DeleteAPIKey revokes the key with the given id.
+func (s *Store) DeleteAPIKey(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
+	return err
+}
+
+// LookupAPIKeyByHash returns the matching key id if a row with the supplied hash exists.
+// Returns empty string + no error if no match.
+func (s *Store) LookupAPIKeyByHash(ctx context.Context, hash string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM api_keys WHERE key_hash = ?`, hash).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+// TouchAPIKey updates last_used_at to now.
+func (s *Store) TouchAPIKey(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, time.Now().Unix(), id)
+	return err
+}
+
+// ---------- Servers Registry ----------
+
+func scanServer(scanner interface {
+	Scan(dest ...any) error
+}) (*Server, error) {
+	var sv Server
+	var isSelf, enabled int
+	var created, updated int64
+	var lastOk sql.NullInt64
+	if err := scanner.Scan(&sv.ID, &sv.Name, &sv.BaseURL, &sv.APIKeyEnc, &isSelf, &enabled, &created, &updated, &lastOk, &sv.LastError); err != nil {
+		return nil, err
+	}
+	sv.IsSelf = isSelf != 0
+	sv.Enabled = enabled != 0
+	sv.CreatedAt = time.Unix(created, 0)
+	sv.UpdatedAt = time.Unix(updated, 0)
+	if lastOk.Valid {
+		t := time.Unix(lastOk.Int64, 0)
+		sv.LastOkAt = &t
+	}
+	return &sv, nil
+}
+
+const serverCols = `id, name, base_url, api_key_enc, is_self, enabled, created_at, updated_at, last_ok_at, last_error`
+
+// CreateServer inserts a new server row.
+func (s *Store) CreateServer(ctx context.Context, sv Server) error {
+	now := time.Now().Unix()
+	isSelf := 0
+	if sv.IsSelf {
+		isSelf = 1
+	}
+	enabled := 1
+	if !sv.Enabled {
+		enabled = 0
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO servers (id, name, base_url, api_key_enc, is_self, enabled, created_at, updated_at, last_ok_at, last_error)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '')`,
+		sv.ID, sv.Name, sv.BaseURL, sv.APIKeyEnc, isSelf, enabled, now, now)
+	return err
+}
+
+// GetServer returns a server by id, or nil if not found.
+func (s *Store) GetServer(ctx context.Context, id string) (*Server, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+serverCols+` FROM servers WHERE id = ?`, id)
+	sv, err := scanServer(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return sv, err
+}
+
+// GetSelfServer returns the self server row, or nil if not yet seeded.
+func (s *Store) GetSelfServer(ctx context.Context) (*Server, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+serverCols+` FROM servers WHERE is_self = 1 LIMIT 1`)
+	sv, err := scanServer(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return sv, err
+}
+
+// ListServers returns all servers ordered by self-first then name.
+func (s *Store) ListServers(ctx context.Context) ([]Server, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+serverCols+` FROM servers ORDER BY is_self DESC, name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Server
+	for rows.Next() {
+		sv, err := scanServer(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *sv)
+	}
+	return out, rows.Err()
+}
+
+// UpdateServer overwrites mutable fields.
+func (s *Store) UpdateServer(ctx context.Context, sv Server) error {
+	enabled := 1
+	if !sv.Enabled {
+		enabled = 0
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE servers SET name = ?, base_url = ?, api_key_enc = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		sv.Name, sv.BaseURL, sv.APIKeyEnc, enabled, time.Now().Unix(), sv.ID)
+	return err
+}
+
+// SetServerStatus records the latest connection result.
+func (s *Store) SetServerStatus(ctx context.Context, id string, okAt *time.Time, errMsg string) error {
+	var okUnix sql.NullInt64
+	if okAt != nil {
+		okUnix = sql.NullInt64{Int64: okAt.Unix(), Valid: true}
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE servers SET last_ok_at = ?, last_error = ? WHERE id = ?`,
+		okUnix, errMsg, id)
+	return err
+}
+
+// DeleteServer removes a server. Caller must refuse to delete is_self rows.
+func (s *Store) DeleteServer(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM servers WHERE id = ? AND is_self = 0`, id)
+	return err
 }
 
 // LatestShort returns the most recent N rows from metrics_short.

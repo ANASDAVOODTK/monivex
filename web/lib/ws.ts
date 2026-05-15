@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useMetrics } from './store';
+import { useMetricsStore } from './store';
 import type { Snapshot } from './types';
 
 /**
@@ -41,29 +41,31 @@ export function wsUrl(path: string): string {
   return url.toString();
 }
 
-export function useMetricsSocket() {
-  const setSnapshot = useMetrics((s) => s.setSnapshot);
-  const setConnected = useMetrics((s) => s.setConnected);
+/** Opens a metrics stream for ONE server and stores updates per-server. */
+export function useMetricsSocket(serverId: string | null | undefined) {
+  const setSnapshot = useMetricsStore((s) => s.setSnapshot);
+  const setConnected = useMetricsStore((s) => s.setConnected);
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef(0);
   const cancelledRef = useRef(false);
 
   useEffect(() => {
+    if (!serverId) return;
     cancelledRef.current = false;
 
     const connect = () => {
       if (cancelledRef.current) return;
-      const ws = new WebSocket(wsUrl('/ws/metrics'));
+      const ws = new WebSocket(wsUrl(`/ws/servers/${encodeURIComponent(serverId)}/metrics`));
       wsRef.current = ws;
 
       ws.onopen = () => {
         retryRef.current = 0;
-        setConnected(true);
+        setConnected(serverId, true);
       };
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data) as Snapshot;
-          setSnapshot(data);
+          setSnapshot(serverId, data);
         } catch {
           /* ignore */
         }
@@ -72,7 +74,7 @@ export function useMetricsSocket() {
         ws.close();
       };
       ws.onclose = () => {
-        setConnected(false);
+        setConnected(serverId, false);
         if (cancelledRef.current) return;
         retryRef.current = Math.min(retryRef.current + 1, 6);
         const delay = Math.min(1000 * 2 ** retryRef.current, 30000);
@@ -85,11 +87,18 @@ export function useMetricsSocket() {
       cancelledRef.current = true;
       wsRef.current?.close();
     };
-  }, [setSnapshot, setConnected]);
+  }, [serverId, setSnapshot, setConnected]);
 }
 
-export function openLogSocket(path: string, onLine: (line: string) => void, onError: (msg: string) => void): WebSocket {
-  const ws = new WebSocket(wsUrl(`/ws/logs?path=${encodeURIComponent(path)}`));
+export function openLogSocket(
+  serverId: string,
+  path: string,
+  onLine: (line: string) => void,
+  onError: (msg: string) => void,
+): WebSocket {
+  const ws = new WebSocket(
+    wsUrl(`/ws/servers/${encodeURIComponent(serverId)}/logs?path=${encodeURIComponent(path)}`),
+  );
   ws.onmessage = (ev) => {
     try {
       const f = JSON.parse(ev.data) as { type: string; line?: string; err?: string };

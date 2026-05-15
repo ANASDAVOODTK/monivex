@@ -1,23 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { EmptyState, MetricTile, PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import { formatBytes, formatPct } from '@/lib/utils';
 import type { Container } from '@/lib/types';
 import { ArrowRight, Container as ContainerIcon, Play } from 'lucide-react';
 
 export default function DockerPage() {
-  return (
-    <DashboardShell>
-      <Docker />
-    </DashboardShell>
-  );
+  return <Docker />;
 }
 
 function Docker() {
-  const containers = useMetrics((s) => s.current?.docker) ?? [];
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
+  const { current } = useServerMetrics(serverId);
+  const containers = current?.docker ?? [];
 
   if (!containers.length) {
     return (
@@ -61,6 +60,7 @@ function Docker() {
           <ContainerLinkCard
             key={c.id}
             container={c}
+            serverId={serverId}
           />
         ))}
       </div>
@@ -68,12 +68,12 @@ function Docker() {
   );
 }
 
-function ContainerLinkCard({ container: c }: { container: Container }) {
+function ContainerLinkCard({ container: c, serverId }: { container: Container; serverId: string }) {
   const isRunning = c.state === 'running';
 
   return (
     <Link
-      href={`/docker/container?id=${encodeURIComponent(c.id)}`}
+      href={`/servers/${encodeURIComponent(serverId)}/docker/container?id=${encodeURIComponent(c.id)}`}
       className="card card-pad block transition-colors hover:border-accent/40 hover:bg-white/[0.03]"
     >
       <div className="flex items-start justify-between gap-3">

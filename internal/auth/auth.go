@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -38,6 +39,11 @@ type Claims struct {
 	UserID   int64  `json:"uid"`
 	Username string `json:"usr"`
 	jwt.RegisteredClaims
+}
+
+// IsAPIKey reports whether these claims came from an API key (not a user login).
+func (c *Claims) IsAPIKey() bool {
+	return strings.HasPrefix(c.Username, "apikey:")
 }
 
 func New(ctx context.Context, s *store.Store) (*Service, error) {
@@ -186,6 +192,14 @@ func (s *Service) Verify(token string) (*Claims, error) {
 // CookieName returns the cookie name used for the JWT.
 func CookieName() string { return cookieName }
 
+// Secret returns a copy of the JWT secret. Used by other packages that need to
+// derive encryption keys from a stable per-install seed.
+func (s *Service) Secret() []byte {
+	out := make([]byte, len(s.secret))
+	copy(out, s.secret)
+	return out
+}
+
 // IssueCookie returns an *http.Cookie carrying the token.
 // HttpOnly is false so the frontend JS can read the token and pass it as
 // a query parameter when opening cross-origin WebSocket connections (the
@@ -216,6 +230,85 @@ func (s *Service) ClearCookie(secure bool) *http.Cookie {
 	}
 }
 
+// ---------- API keys ----------
+
+// hashAPIKey returns the lowercase hex sha256 of the secret. API keys are random
+// 32-byte strings, so sha256 is sufficient — no need for bcrypt's slowdown.
+func hashAPIKey(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:])
+}
+
+// APIKeyHeader is the request header clients must use to authenticate with an API key.
+const APIKeyHeader = "X-API-Key"
+
+// APIKeyQueryParam is accepted on WebSocket upgrade requests.
+const APIKeyQueryParam = "api_key"
+
+// CreateAPIKey generates a new key, persists its hash, and returns id + plaintext secret.
+// Plaintext is shown to the user once and not stored.
+func (s *Service) CreateAPIKey(ctx context.Context, name string) (id, secret string, err error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", "", errors.New("name is required")
+	}
+	idBuf := make([]byte, 6)
+	if _, err := rand.Read(idBuf); err != nil {
+		return "", "", err
+	}
+	id = "ak_" + hex.EncodeToString(idBuf)
+
+	secretBuf := make([]byte, 32)
+	if _, err := rand.Read(secretBuf); err != nil {
+		return "", "", err
+	}
+	secret = "sm_" + hex.EncodeToString(secretBuf)
+
+	if err := s.store.CreateAPIKey(ctx, id, name, hashAPIKey(secret)); err != nil {
+		return "", "", err
+	}
+	return id, secret, nil
+}
+
+// ListAPIKeys returns metadata for all keys.
+func (s *Service) ListAPIKeys(ctx context.Context) ([]store.APIKey, error) {
+	return s.store.ListAPIKeys(ctx)
+}
+
+// DeleteAPIKey revokes a key.
+func (s *Service) DeleteAPIKey(ctx context.Context, id string) error {
+	return s.store.DeleteAPIKey(ctx, id)
+}
+
+// VerifyAPIKey returns claims for a valid API key, or an error.
+func (s *Service) VerifyAPIKey(ctx context.Context, secret string) (*Claims, error) {
+	if secret == "" {
+		return nil, ErrUnauthorized
+	}
+	id, err := s.store.LookupAPIKeyByHash(ctx, hashAPIKey(secret))
+	if err != nil || id == "" {
+		return nil, ErrUnauthorized
+	}
+	// Best-effort: record last-used. Failures here don't deny auth.
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.store.TouchAPIKey(bgCtx, id)
+	}()
+	return &Claims{Username: "apikey:" + id}, nil
+}
+
+// ExtractAPIKey from header or ?api_key= query string.
+func ExtractAPIKey(r *http.Request) string {
+	if h := r.Header.Get(APIKeyHeader); h != "" {
+		return h
+	}
+	if q := r.URL.Query().Get(APIKeyQueryParam); q != "" {
+		return q
+	}
+	return ""
+}
+
 // ExtractToken from cookie or Authorization header.
 func ExtractToken(r *http.Request) string {
 	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
@@ -234,8 +327,35 @@ func ExtractToken(r *http.Request) string {
 
 type ctxKey struct{}
 
-// Middleware enforces a valid JWT.
+// Middleware enforces a valid JWT or API key.
 func (s *Service) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if key := ExtractAPIKey(r); key != "" {
+			claims, err := s.VerifyAPIKey(r.Context(), key)
+			if err == nil {
+				ctx := context.WithValue(r.Context(), ctxKey{}, claims)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+		}
+		tok := ExtractToken(r)
+		if tok == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		claims, err := s.Verify(tok)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxKey{}, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// JWTOnlyMiddleware enforces a JWT (no API-key fallback). Used for admin actions
+// like managing API keys themselves.
+func (s *Service) JWTOnlyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tok := ExtractToken(r)
 		if tok == "" {

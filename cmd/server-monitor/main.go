@@ -12,10 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ANASDAVOODTK/server-monitor/internal/aggregator"
 	"github.com/ANASDAVOODTK/server-monitor/internal/api"
 	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
 	"github.com/ANASDAVOODTK/server-monitor/internal/config"
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
+	"github.com/ANASDAVOODTK/server-monitor/internal/servers"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 	"github.com/ANASDAVOODTK/server-monitor/internal/templates"
 	qdranttpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/qdrant"
@@ -58,11 +60,26 @@ func main() {
 	tplSvc := templates.NewService(tplReg, st, cfg.DataDir, cfg.Templates.StorageRoot)
 	go runTemplateReconciler(ctx, tplSvc)
 
+	registry, err := servers.New(st, authSvc.Secret())
+	if err != nil {
+		log.Fatalf("servers registry: %v", err)
+	}
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "this server"
+	}
+	if _, err := registry.EnsureSelf(ctx, hostname); err != nil {
+		log.Fatalf("ensure self server: %v", err)
+	}
+
+	agg := aggregator.New(registry, h)
+	go agg.Run(ctx)
+
 	var ui fs.FS
 	if uiFromMain != nil {
 		ui = uiFromMain()
 	}
-	srv := api.NewServer(cfg, st, authSvc, h, tplSvc, ui)
+	srv := api.NewServer(cfg, st, authSvc, h, tplSvc, registry, agg, ui)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Server.Bind,

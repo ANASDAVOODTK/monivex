@@ -4,10 +4,12 @@ import { useEffect, useRef } from 'react';
 import { wsUrl } from '@/lib/ws';
 
 export default function DockerExecTerminal({
+  serverId,
   containerId,
   shell = 'auto',
   onClose,
 }: {
+  serverId: string;
   containerId: string;
   shell?: 'auto' | 'bash' | 'sh';
   onClose: () => void;
@@ -69,7 +71,9 @@ export default function DockerExecTerminal({
       terminal.writeln('\x1b[1;36m* Connecting to container...\x1b[0m');
 
       const q = new URLSearchParams({ shell });
-      const url = wsUrl(`/ws/docker/exec/${encodeURIComponent(containerId)}?${q}`);
+      const url = wsUrl(
+        `/ws/servers/${encodeURIComponent(serverId)}/docker/exec/${encodeURIComponent(containerId)}?${q}`,
+      );
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
@@ -132,7 +136,7 @@ export default function DockerExecTerminal({
         (element as any)._cleanup();
       }
     };
-  }, [containerId, shell]);
+  }, [serverId, containerId, shell]);
 
   return (
     <div

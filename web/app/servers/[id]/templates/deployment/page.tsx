@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams, useSearchParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { Deployment, DeploymentEvent, TemplateDefinition } from '@/lib/types';
@@ -30,14 +29,12 @@ function isSecretKey(key: string): boolean {
 }
 
 export default function DeploymentPage() {
-  return (
-    <DashboardShell>
-      <DeploymentDetail />
-    </DashboardShell>
-  );
+  return <DeploymentDetail />;
 }
 
 function DeploymentDetail() {
+  const routeParams = useParams<{ id: string }>();
+  const serverId = (routeParams?.id ?? '') as string;
   const params = useSearchParams();
   const id = params.get('id') ?? '';
 
@@ -58,8 +55,8 @@ function DeploymentDetail() {
     setErr(null);
     try {
       const [d, ev] = await Promise.all([
-        api.deploymentGet(id),
-        api.deploymentEvents(id),
+        api.deploymentGet(serverId, id),
+        api.deploymentEvents(serverId, id),
       ]);
       setDep(d);
       setEvents(ev);
@@ -68,7 +65,7 @@ function DeploymentDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [serverId, id]);
 
   useEffect(() => {
     refresh();
@@ -102,7 +99,7 @@ function DeploymentDetail() {
   if (!dep) {
     return (
       <div className="space-y-4">
-        <Link href="/templates" className="btn-ghost inline-flex w-fit items-center gap-2">
+        <Link href={`/servers/${encodeURIComponent(serverId)}/templates`} className="btn-ghost inline-flex w-fit items-center gap-2">
           <ArrowLeft className="size-4" />
           Back to templates
         </Link>
@@ -120,7 +117,7 @@ function DeploymentDetail() {
 
   return (
     <div className="space-y-6">
-      <Link href="/templates" className="btn-ghost inline-flex w-fit items-center gap-2">
+      <Link href={`/servers/${encodeURIComponent(serverId)}/templates`} className="btn-ghost inline-flex w-fit items-center gap-2">
         <ArrowLeft className="size-4" />
         Back to templates
       </Link>
@@ -169,7 +166,7 @@ function DeploymentDetail() {
           {!isRunning && (
             <button
               disabled={inFlight || actionBusy !== null}
-              onClick={() => run('start', () => api.deploymentStart(dep.id))}
+              onClick={() => run('start', () => api.deploymentStart(serverId, dep.id))}
               className="btn-secondary"
             >
               {actionBusy === 'start' ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
@@ -179,7 +176,7 @@ function DeploymentDetail() {
           {isRunning && (
             <button
               disabled={inFlight || actionBusy !== null}
-              onClick={() => run('stop', () => api.deploymentStop(dep.id))}
+              onClick={() => run('stop', () => api.deploymentStop(serverId, dep.id))}
               className="btn-secondary"
             >
               {actionBusy === 'stop' ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
@@ -196,7 +193,7 @@ function DeploymentDetail() {
           </button>
           <button
             disabled={inFlight || actionBusy !== null}
-            onClick={() => run('update', () => api.deploymentUpdate(dep.id))}
+            onClick={() => run('update', () => api.deploymentUpdate(serverId, dep.id))}
             className="btn-secondary"
           >
             {actionBusy === 'update' ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
@@ -206,7 +203,7 @@ function DeploymentDetail() {
             disabled={inFlight || actionBusy !== null}
             onClick={() => {
               if (confirm(`Delete "${dep.name}"? This removes containers AND volumes.`)) {
-                run('delete', () => api.deploymentDelete(dep.id, true));
+                run('delete', () => api.deploymentDelete(serverId, dep.id, true));
               }
             }}
             className="btn-ghost text-rose-300 hover:bg-rose-400/10"
@@ -285,6 +282,7 @@ function DeploymentDetail() {
 
       {editing && (
         <EditConfigDialog
+          serverId={serverId}
           dep={dep}
           onClose={() => setEditing(false)}
           onSaved={async () => {
@@ -298,10 +296,12 @@ function DeploymentDetail() {
 }
 
 function EditConfigDialog({
+  serverId,
   dep,
   onClose,
   onSaved,
 }: {
+  serverId: string;
   dep: Deployment;
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -319,7 +319,7 @@ function EditConfigDialog({
   useEffect(() => {
     let cancelled = false;
     api
-      .templateGet(dep.template_id)
+      .templateGet(serverId, dep.template_id)
       .then((d) => {
         if (!cancelled) setDef(d);
       })
@@ -329,7 +329,7 @@ function EditConfigDialog({
     return () => {
       cancelled = true;
     };
-  }, [dep.template_id]);
+  }, [serverId, dep.template_id]);
 
   const submit = async () => {
     setBusy(true);
@@ -343,7 +343,7 @@ function EditConfigDialog({
         }
         portsNum[k] = n;
       }
-      await api.deploymentEdit(dep.id, { config, ports: portsNum, restart });
+      await api.deploymentEdit(serverId, dep.id, { config, ports: portsNum, restart });
       await onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed');

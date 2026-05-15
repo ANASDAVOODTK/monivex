@@ -2,22 +2,19 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { TemplateDefinition, TemplateField } from '@/lib/types';
 import { ArrowLeft, Boxes, Eye, EyeOff, Loader2, Plus, RefreshCw, Rocket, Trash2, Wand2 } from 'lucide-react';
 
 export default function TemplateDeployPage() {
-  return (
-    <DashboardShell>
-      <DeployForm />
-    </DashboardShell>
-  );
+  return <DeployForm />;
 }
 
 function DeployForm() {
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
   const router = useRouter();
   const searchParams = useSearchParams();
   const templateId = searchParams.get('template') ?? '';
@@ -38,7 +35,7 @@ function DeployForm() {
     async (id: string, mode: 'all' | 'ports' | 'secrets') => {
       setAutofilling(true);
       try {
-        const d = await api.templateDefaults(id);
+        const d = await api.templateDefaults(serverId, id);
         if (mode !== 'ports') {
           setConfig((prev) => ({ ...prev, ...d.config }));
         }
@@ -52,7 +49,7 @@ function DeployForm() {
         setAutofilling(false);
       }
     },
-    [],
+    [serverId],
   );
 
   const load = useCallback(async () => {
@@ -62,7 +59,7 @@ function DeployForm() {
       return;
     }
     try {
-      const t = await api.templateGet(templateId);
+      const t = await api.templateGet(serverId, templateId);
       setTemplate(t);
       const cfg: Record<string, string> = {};
       for (const f of t.fields) {
@@ -81,7 +78,7 @@ function DeployForm() {
     } finally {
       setLoading(false);
     }
-  }, [templateId, applyDefaults]);
+  }, [serverId, templateId, applyDefaults]);
 
   useEffect(() => {
     load();
@@ -107,13 +104,13 @@ function DeployForm() {
       for (const row of envRows) {
         if (row.key.trim()) envMap[row.key.trim()] = row.value;
       }
-      const result = await api.templateDeploy(template.id, {
+      const result = await api.templateDeploy(serverId, template.id, {
         name: name.trim(),
         config,
         ports,
         env: envMap,
       });
-      router.push(`/templates/deployment?id=${encodeURIComponent(result.id)}`);
+      router.push(`/servers/${encodeURIComponent(serverId)}/templates/deployment?id=${encodeURIComponent(result.id)}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Deploy failed');
       setSubmitting(false);
@@ -330,7 +327,7 @@ function DeployForm() {
         </section>
 
         <div className="flex justify-end gap-2">
-          <Link href="/templates" className="btn-ghost">
+          <Link href={`/servers/${encodeURIComponent(serverId)}/templates`} className="btn-ghost">
             Cancel
           </Link>
           <button type="submit" disabled={submitting} className="btn-primary">

@@ -4,8 +4,10 @@ import { useEffect, useRef } from 'react';
 import { wsUrl } from '@/lib/ws';
 
 export default function DockerLogsTerminal({
+  serverId,
   containerId,
 }: {
+  serverId: string;
   containerId: string;
 }) {
   const termRef = useRef<HTMLDivElement>(null);
@@ -87,7 +89,9 @@ export default function DockerLogsTerminal({
 
       let url: string;
       try {
-        url = wsUrl(`/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`);
+        url = wsUrl(
+          `/ws/servers/${encodeURIComponent(serverId)}/docker/logs/${encodeURIComponent(containerId)}?tail=200`,
+        );
       } catch (err) {
         logLine('1;31', `Failed to build URL: ${(err as Error).message}`);
         return;
@@ -258,7 +262,7 @@ export default function DockerLogsTerminal({
         terminal.dispose();
       }
     };
-  }, [containerId]);
+  }, [serverId, containerId]);
 
   return (
     <div

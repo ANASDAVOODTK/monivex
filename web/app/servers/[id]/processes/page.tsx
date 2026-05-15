@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import type { Process } from '@/lib/types';
 import { formatBytes, formatPct } from '@/lib/utils';
 import { ArrowDown, ArrowUp, Cpu, MemoryStick, Search, Users } from 'lucide-react';
@@ -12,15 +12,14 @@ type SortKey = 'cpu' | 'mem' | 'pid' | 'name';
 const EMPTY_PROCS: Process[] = [];
 
 export default function ProcessesPage() {
-  return (
-    <DashboardShell>
-      <Processes />
-    </DashboardShell>
-  );
+  return <Processes />;
 }
 
 function Processes() {
-  const procs = useMetrics((s) => s.current?.processes ?? EMPTY_PROCS);
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
+  const { current } = useServerMetrics(serverId);
+  const procs = current?.processes ?? EMPTY_PROCS;
   const [q, setQ] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('cpu');
   const [asc, setAsc] = useState(false);

@@ -1,15 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Clock3, LogOut, Menu, Server, Wifi, WifiOff } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import { formatDuration } from '@/lib/utils';
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
-  const current = useMetrics((s) => s.current);
-  const connected = useMetrics((s) => s.connected);
+  const params = useParams<{ id?: string | string[] }>();
+  const serverId = (Array.isArray(params?.id) ? params.id[0] : params?.id) ?? '';
+  const { current, connected } = useServerMetrics(serverId);
   const [user, setUser] = useState<string>('');
   const router = useRouter();
 

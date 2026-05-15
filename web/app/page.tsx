@@ -1,349 +1,478 @@
 'use client';
 
-import { DashboardShell } from '@/components/dashboard-shell';
-import { Sparkline } from '@/components/sparkline';
-import { HealthRing, InfoPill, MetricTile, ProgressBar, StatusBadge } from '@/components/ui';
-import { useMetrics } from '@/lib/store';
-import { clampPct, formatBytes, formatBytesPerSec, formatPct } from '@/lib/utils';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
+import { api, type ServerSummary } from '@/lib/api';
 import {
   Activity,
+  ArrowRight,
+  Boxes,
+  CircleAlert,
+  CircleCheck,
+  CircleOff,
   Cpu,
-  Database,
-  Gauge,
   HardDrive,
+  Loader2,
+  LogOut,
   MemoryStick,
-  Network,
+  Plus,
+  RefreshCw,
   Server,
-  Thermometer,
-  Zap,
+  Settings,
+  Trash2,
 } from 'lucide-react';
 
-export default function OverviewPage() {
+function ToneClass(connected: boolean, enabled: boolean) {
+  if (!enabled) return 'text-fg-subtle';
+  return connected ? 'text-emerald-300' : 'text-rose-300';
+}
+
+function formatUptime(seconds: number | undefined): string {
+  if (!seconds || seconds <= 0) return '-';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function formatLastSeen(ts?: number) {
+  if (!ts) return 'never';
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 5) return 'just now';
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+  return `${Math.round(diff / 3600)}h ago`;
+}
+
+export default function ServersListPage() {
+  const router = useRouter();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const status = await api.setupStatus();
+        if (status.needs_setup) {
+          router.replace('/setup');
+          return;
+        }
+        await api.me();
+        setReady(true);
+      } catch {
+        router.replace('/login');
+      }
+    })();
+  }, [router]);
+
+  if (!ready) {
+    return (
+      <div className="app-bg flex h-screen items-center justify-center text-sm text-fg-muted">
+        <div className="glass-panel flex items-center gap-3 px-4 py-3">
+          <Activity className="size-4 animate-pulse text-accent" />
+          Loading
+        </div>
+      </div>
+    );
+  }
+  return <ServersList />;
+}
+
+function ServersList() {
+  const [servers, setServers] = useState<ServerSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await api.serversList();
+      setServers(list);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to load servers');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 5000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  const totals = useMemo(() => {
+    const connected = servers.filter((s) => s.connected).length;
+    return { total: servers.length, connected };
+  }, [servers]);
+
+  const onRemove = async (id: string, name: string) => {
+    if (!confirm(`Remove server "${name}"? This stops monitoring it but does not affect the agent.`)) return;
+    setRemoving(id);
+    try {
+      await api.serverDelete(id);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to remove');
+    } finally {
+      setRemoving(null);
+    }
+  };
+
   return (
-    <DashboardShell>
-      <Overview />
-    </DashboardShell>
+    <div className="app-bg min-h-screen text-fg">
+      <header className="border-b border-white/10 bg-bg/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-lg border border-accent/30 bg-accent/10 shadow-glow">
+              <Activity className="size-5 text-accent" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold leading-none">Server Monitor</div>
+              <div className="mt-1 text-[11px] text-fg-subtle">Fleet overview</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={refresh} className="btn-secondary">
+              <RefreshCw className="size-4" />
+              Refresh
+            </button>
+            <button onClick={() => setShowAdd(true)} className="btn-secondary">
+              <Plus className="size-4" />
+              Add server
+            </button>
+            <Link href="/settings" className="btn-ghost">
+              <Settings className="size-4" />
+              Settings
+            </Link>
+            <button
+              onClick={async () => {
+                try {
+                  await api.logout();
+                } finally {
+                  window.location.href = '/login';
+                }
+              }}
+              className="btn-ghost"
+            >
+              <LogOut className="size-4" />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-[1400px] space-y-6 px-6 py-8">
+        <div className="flex flex-wrap items-center gap-3">
+          <Chip label="Servers" value={String(totals.total)} />
+          <Chip label="Connected" value={String(totals.connected)} tone="green" />
+        </div>
+
+        {err && (
+          <div className="rounded-lg border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
+            {err}
+          </div>
+        )}
+
+        {loading && servers.length === 0 ? (
+          <div className="grid min-h-[40vh] place-items-center text-fg-muted">
+            <div className="glass-panel flex items-center gap-2 px-4 py-3 text-sm">
+              <Loader2 className="size-4 animate-spin text-accent" />
+              Loading servers
+            </div>
+          </div>
+        ) : servers.length === 0 ? (
+          <div className="grid min-h-[40vh] place-items-center rounded-xl border border-dashed border-white/10 p-8 text-center">
+            <Server className="size-8 text-fg-subtle" />
+            <h2 className="mt-3 text-lg font-semibold">No servers yet</h2>
+            <p className="mt-2 max-w-md text-sm text-fg-muted">
+              Add another instance running server-monitor by pasting its URL and API key.
+            </p>
+            <button onClick={() => setShowAdd(true)} className="btn-secondary mt-4">
+              <Plus className="size-4" />
+              Add server
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {servers.map((s) => (
+              <ServerCard
+                key={s.id}
+                server={s}
+                removing={removing === s.id}
+                onRemove={() => onRemove(s.id, s.name)}
+              />
+            ))}
+          </div>
+        )}
+      </main>
+
+      {showAdd && (
+        <AddServerDialog
+          onClose={() => setShowAdd(false)}
+          onAdded={async () => {
+            setShowAdd(false);
+            await refresh();
+          }}
+        />
+      )}
+    </div>
   );
 }
 
-function Overview() {
-  const current = useMetrics((s) => s.current);
-  const history = useMetrics((s) => s.history);
-  const connected = useMetrics((s) => s.connected);
-
-  const cpuSeries = history.map((h) => ({ t: h.t, v: h.cpu }));
-  const memSeries = history.map((h) => ({ t: h.t, v: h.mem }));
-  const gpuSeries = history.map((h) => ({ t: h.t, v: h.gpu }));
-  const netRxSeries = history.map((h) => ({ t: h.t, v: h.netRx }));
-  const netTxSeries = history.map((h) => ({ t: h.t, v: h.netTx }));
-
-  const gpu = current?.gpus?.[0];
-  const totalNetRx = current?.network?.reduce((a, n) => a + n.recv_rate, 0) ?? 0;
-  const totalNetTx = current?.network?.reduce((a, n) => a + n.send_rate, 0) ?? 0;
-  const primaryDisk = current?.disks?.find((d) => d.mountpoint === '/') ?? current?.disks?.[0];
-  const topProcesses = [...(current?.processes ?? [])]
-    .sort((a, b) => b.cpu_percent - a.cpu_percent)
-    .slice(0, 5);
-
-  const healthScore = Math.round(
-    (100 - clampPct(current?.cpu?.overall ?? 0)) * 0.28 +
-      (100 - clampPct(current?.memory?.used_percent ?? 0)) * 0.26 +
-      (100 - clampPct(primaryDisk?.used_percent ?? 0)) * 0.2 +
-      (connected ? 100 : 0) * 0.16 +
-      (gpu ? 100 - clampPct(gpu.temperature > 0 ? Math.max(0, (gpu.temperature - 35) * 1.6) : 0) : 100) * 0.1,
+function ServerCard({
+  server,
+  removing,
+  onRemove,
+}: {
+  server: ServerSummary;
+  removing: boolean;
+  onRemove: () => void;
+}) {
+  const statusIcon = !server.enabled ? (
+    <CircleOff className="size-4" />
+  ) : server.connected ? (
+    <CircleCheck className="size-4" />
+  ) : (
+    <CircleAlert className="size-4" />
   );
-  const healthTone = healthScore > 78 ? 'green' : healthScore > 58 ? 'amber' : 'rose';
+  const statusText = !server.enabled
+    ? 'disabled'
+    : server.connected
+      ? 'connected'
+      : server.last_error
+        ? 'disconnected'
+        : 'connecting';
 
   return (
-    <div className="space-y-6">
-      <div className="glass-panel overflow-hidden p-5 sm:p-6">
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="flex flex-col justify-between gap-6">
-            <div>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <InfoPill icon={<Server className="size-3.5" />} label="Node" value={current?.host?.hostname ?? 'pending'} tone="teal" />
-                <InfoPill label="Kernel" value={current?.host?.kernel_version ?? 'waiting'} />
-                <InfoPill label="Samples" value={history.length} tone={connected ? 'green' : 'rose'} />
-              </div>
-              <h1 className="text-3xl font-semibold text-fg sm:text-4xl">Operations cockpit</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-fg-muted">
-                Real-time host telemetry, workload pressure, and infrastructure signals in one command surface.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-center">
-              <HealthRing value={healthScore} label={healthScore > 78 ? 'Stable systems' : healthScore > 58 ? 'Watch closely' : 'Intervention needed'} tone={healthTone} />
-              <div className="grid gap-3 sm:grid-cols-3">
-                <MicroRead label="CPU pressure" value={formatPct(current?.cpu?.overall ?? 0)} pct={current?.cpu?.overall ?? 0} tone="teal" />
-                <MicroRead label="Memory load" value={formatPct(current?.memory?.used_percent ?? 0)} pct={current?.memory?.used_percent ?? 0} tone="blue" />
-                <MicroRead label="Disk use" value={primaryDisk ? formatPct(primaryDisk.used_percent) : '-'} pct={primaryDisk?.used_percent ?? 0} tone="amber" />
-              </div>
-            </div>
+    <div className="card card-pad relative overflow-hidden">
+      <Link
+        href={`/servers/${encodeURIComponent(server.id)}`}
+        className="absolute inset-0"
+        aria-label={`Open ${server.name}`}
+      />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Server className="size-4 text-accent" />
+            <h3 className="truncate text-sm font-semibold text-fg">{server.name}</h3>
+            {server.is_self && (
+              <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent">
+                this
+              </span>
+            )}
           </div>
-
-          <SystemField
-            cpu={current?.cpu?.overall ?? 0}
-            mem={current?.memory?.used_percent ?? 0}
-            disk={primaryDisk?.used_percent ?? 0}
-            gpu={gpu?.utilization ?? 0}
-            rx={totalNetRx}
-            tx={totalNetTx}
-            connected={connected}
-          />
+          <div className="mt-1 truncate font-mono text-[11px] text-fg-subtle">
+            {server.base_url || 'local'}
+          </div>
+        </div>
+        <div className={`flex items-center gap-1 text-xs ${ToneClass(server.connected, server.enabled)}`}>
+          {statusIcon}
+          {statusText}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          label="CPU"
-          value={formatPct(current?.cpu?.overall ?? 0)}
-          detail={current?.cpu ? `${current.cpu.cores} cores / ${current.cpu.threads} threads` : 'Awaiting sample'}
-          percent={current?.cpu?.overall}
-          tone="teal"
-          icon={<Cpu className="size-4" />}
-        />
-        <MetricTile
-          label="Memory"
-          value={formatPct(current?.memory?.used_percent ?? 0)}
-          detail={
-            current?.memory
-              ? `${formatBytes(current.memory.used)} of ${formatBytes(current.memory.total)}`
-              : 'Awaiting sample'
-          }
-          percent={current?.memory?.used_percent}
-          tone="blue"
-          icon={<MemoryStick className="size-4" />}
-        />
-        <MetricTile
-          label="Root disk"
-          value={primaryDisk ? formatPct(primaryDisk.used_percent) : '-'}
-          detail={primaryDisk ? `${formatBytes(primaryDisk.free)} free on ${primaryDisk.mountpoint}` : 'No disk data'}
-          percent={primaryDisk?.used_percent}
-          tone={primaryDisk && primaryDisk.used_percent > 85 ? 'rose' : 'amber'}
-          icon={<HardDrive className="size-4" />}
-        />
-        <MetricTile
-          label="Network"
-          value={formatBytesPerSec(totalNetRx)}
-          detail={`down ${formatBytesPerSec(totalNetRx)} / up ${formatBytesPerSec(totalNetTx)}`}
-          tone="green"
-          icon={<Network className="size-4" />}
-          footer={<span>Total interfaces: {current?.network?.length ?? 0}</span>}
-        />
+      <div className="relative mt-4 grid grid-cols-3 gap-2 text-xs">
+        <Stat icon={<Cpu className="size-3.5" />} label="CPU" value={server.cpu_percent !== undefined ? `${server.cpu_percent.toFixed(0)}%` : '-'} />
+        <Stat icon={<MemoryStick className="size-3.5" />} label="MEM" value={server.mem_percent !== undefined ? `${server.mem_percent.toFixed(0)}%` : '-'} />
+        <Stat icon={<HardDrive className="size-3.5" />} label="DISK" value={server.disk_percent !== undefined ? `${server.disk_percent.toFixed(0)}%` : '-'} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <ChartPanel title="CPU usage" value={formatPct(current?.cpu?.overall ?? 0)} color="#2dd4bf">
-          <Sparkline data={cpuSeries} color="#2dd4bf" height={96} />
-        </ChartPanel>
-        <ChartPanel title="Memory usage" value={formatPct(current?.memory?.used_percent ?? 0)} color="#60a5fa">
-          <Sparkline data={memSeries} color="#60a5fa" height={96} />
-        </ChartPanel>
-        <ChartPanel title="GPU utilization" value={gpu ? formatPct(gpu.utilization) : 'No GPU'} color="#a78bfa">
-          <Sparkline data={gpuSeries} color="#a78bfa" height={96} />
-        </ChartPanel>
-        <ChartPanel title="Network receive" value={formatBytesPerSec(totalNetRx)} color="#34d399">
-          <Sparkline data={netRxSeries} color="#34d399" height={96} domain={['auto', 'auto']} />
-        </ChartPanel>
-        <ChartPanel title="Network transmit" value={formatBytesPerSec(totalNetTx)} color="#fbbf24">
-          <Sparkline data={netTxSeries} color="#fbbf24" height={96} domain={['auto', 'auto']} />
-        </ChartPanel>
-        <div className="card card-pad">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">Load average</div>
-              <div className="mt-2 text-sm text-fg-muted">1, 5, and 15 minute windows</div>
-            </div>
-            <Gauge className="size-5 text-accent" />
-          </div>
-          <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-            <LoadCol label="1m" value={current?.load?.load1 ?? 0} />
-            <LoadCol label="5m" value={current?.load?.load5 ?? 0} />
-            <LoadCol label="15m" value={current?.load?.load15 ?? 0} />
-          </div>
+      <div className="relative mt-4 flex items-center justify-between text-[11px] text-fg-muted">
+        <div>
+          <span className="text-fg-subtle">host</span>{' '}
+          <span className="font-mono">{server.hostname || '-'}</span>
+        </div>
+        <div>
+          <span className="text-fg-subtle">up</span>{' '}
+          <span className="font-mono">{formatUptime(server.uptime)}</span>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="card card-pad">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Workload leaders</h2>
-              <p className="mt-1 text-xs text-fg-muted">Highest CPU consumers in the latest sample</p>
-            </div>
-            <a href="/processes" className="text-xs font-medium text-accent hover:text-teal-200">
-              Open processes
-            </a>
-          </div>
-          <div className="space-y-3">
-            {topProcesses.map((p) => (
-              <div key={p.pid} className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 sm:grid-cols-[1fr_auto] sm:items-center">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">{p.name}</span>
-                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-mono text-fg-muted">pid {p.pid}</span>
-                  </div>
-                  <div className="mt-1 truncate font-mono text-[11px] text-fg-subtle">{p.command}</div>
-                </div>
-                <div className="min-w-44">
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="text-fg-muted">CPU</span>
-                    <span className="tabular-nums">{formatPct(p.cpu_percent)}</span>
-                  </div>
-                  <ProgressBar value={p.cpu_percent} tone={p.cpu_percent > 75 ? 'rose' : p.cpu_percent > 45 ? 'amber' : 'teal'} />
-                </div>
-              </div>
-            ))}
-            {topProcesses.length === 0 && <div className="py-10 text-center text-sm text-fg-muted">No process data yet.</div>}
-          </div>
+      {server.last_error && (
+        <div className="relative mt-3 truncate rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200">
+          {server.last_error}
         </div>
+      )}
 
-        <div className="card card-pad">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Accelerators</h2>
-              <p className="mt-1 text-xs text-fg-muted">GPU thermal, power, and memory posture</p>
+      <div className="relative mt-4 flex items-center justify-between border-t border-white/5 pt-3 text-[10px] text-fg-subtle">
+        <span>last seen {formatLastSeen(server.last_seen)}</span>
+        <div className="flex items-center gap-2">
+          {!server.is_self && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                onRemove();
+              }}
+              disabled={removing}
+              className="z-10 inline-flex items-center gap-1 rounded border border-transparent px-2 py-1 text-rose-300 transition-colors hover:border-rose-400/30 hover:bg-rose-400/10 disabled:opacity-50"
+            >
+              {removing ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+              Remove
+            </button>
+          )}
+          <span className="inline-flex items-center gap-1 text-accent">
+            Open <ArrowRight className="size-3" />
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded border border-white/10 bg-white/[0.025] p-2">
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-fg-subtle">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function Chip({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'green' }) {
+  const cls =
+    tone === 'green'
+      ? 'border-emerald-300/25 bg-emerald-400/10'
+      : 'border-white/10 bg-white/[0.04]';
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${cls}`}>
+      <span className="text-fg-muted">{label}</span>
+      <span className="font-medium text-fg">{value}</span>
+    </span>
+  );
+}
+
+function AddServerDialog({
+  onClose,
+  onAdded,
+}: {
+  onClose: () => void;
+  onAdded: () => void | Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [baseURL, setBaseURL] = useState('https://');
+  const [apiKey, setApiKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [tested, setTested] = useState<{ hostname: string } | null>(null);
+
+  const test = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await api.serverTest({ base_url: baseURL, api_key: apiKey });
+      setTested(r.host);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Test failed');
+      setTested(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      await api.serverCreate({
+        name: name.trim() || tested?.hostname || '',
+        base_url: baseURL.trim(),
+        api_key: apiKey.trim(),
+      });
+      await onAdded();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to add');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 backdrop-blur-sm p-4">
+      <form onSubmit={submit} className="glass-panel w-full max-w-md space-y-4 p-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Add server</h2>
+          <button type="button" onClick={onClose} className="btn-ghost">
+            Close
+          </button>
+        </div>
+        <div className="space-y-3 text-sm">
+          <label className="block">
+            <div className="mb-1 text-xs text-fg-muted">Name</div>
+            <input
+              className="input w-full"
+              placeholder="prod-web-1"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <div className="mb-1 text-xs text-fg-muted">Base URL</div>
+            <input
+              className="input w-full font-mono text-xs"
+              placeholder="https://10.0.0.5:8080"
+              value={baseURL}
+              onChange={(e) => setBaseURL(e.target.value)}
+              required
+            />
+          </label>
+          <label className="block">
+            <div className="mb-1 text-xs text-fg-muted">API key</div>
+            <input
+              type="password"
+              autoComplete="off"
+              className="input w-full font-mono text-xs"
+              placeholder="sm_..."
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              required
+            />
+            <div className="mt-1 text-[11px] text-fg-subtle">
+              Generate this on the remote agent under Settings → API keys.
             </div>
-            <a href="/gpu" className="text-xs font-medium text-accent hover:text-teal-200">
-              GPU view
-            </a>
-          </div>
-          {current?.gpus && current.gpus.length > 0 ? (
-            <div className="space-y-3">
-              {current.gpus.map((g) => (
-                <div key={g.index} className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">GPU {g.index} / {g.name}</div>
-                      <div className="mt-1 truncate font-mono text-[11px] text-fg-subtle">{g.uuid}</div>
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-rose-200">
-                      <Thermometer className="size-3.5" />
-                      {g.temperature.toFixed(0)} C
-                    </div>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <GaugeLine label="Utilization" value={g.utilization} tone="violet" text={formatPct(g.utilization)} />
-                    <GaugeLine label="VRAM" value={g.memory_used_pct} tone="blue" text={`${formatBytes(g.memory_used)} / ${formatBytes(g.memory_total)}`} />
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-muted">
-                    <span className="inline-flex items-center gap-1"><Zap className="size-3" />{g.power_draw.toFixed(0)} / {g.power_limit.toFixed(0)} W</span>
-                    <span>fan {g.fan_speed.toFixed(0)}%</span>
-                    <StatusBadge state="online" />
-                  </div>
-                </div>
-              ))}
+          </label>
+          {tested && (
+            <div className="rounded border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-200">
+              Connection OK. Reachable host: <span className="font-mono">{tested.hostname}</span>
             </div>
-          ) : (
-            <div className="grid min-h-48 place-items-center rounded-lg border border-dashed border-white/10 text-sm text-fg-muted">
-              No GPU telemetry detected.
+          )}
+          {err && (
+            <div className="rounded border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
+              {err}
             </div>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function SystemField({
-  cpu,
-  mem,
-  disk,
-  gpu,
-  rx,
-  tx,
-  connected,
-}: {
-  cpu: number;
-  mem: number;
-  disk: number;
-  gpu: number;
-  rx: number;
-  tx: number;
-  connected: boolean;
-}) {
-  const nodes = [
-    { label: 'CPU', value: cpu, className: 'left-[14%] top-[22%]', tone: 'teal' as const },
-    { label: 'MEM', value: mem, className: 'right-[14%] top-[26%]', tone: 'blue' as const },
-    { label: 'DISK', value: disk, className: 'left-[18%] bottom-[20%]', tone: 'amber' as const },
-    { label: 'GPU', value: gpu, className: 'right-[18%] bottom-[18%]', tone: 'violet' as const },
-  ];
-
-  return (
-    <div className="relative min-h-[320px] overflow-hidden rounded-lg border border-white/10 bg-[#0b1014]">
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:28px_28px]" />
-      <div className="absolute inset-x-8 top-1/2 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
-      <div className="absolute inset-y-8 left-1/2 w-px bg-gradient-to-b from-transparent via-accent/45 to-transparent" />
-      <div className="absolute left-1/2 top-1/2 grid size-32 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-accent/30 bg-bg/80 shadow-glow">
-        <div className="grid size-20 place-items-center rounded-full border border-white/10 bg-white/[0.04]">
-          <Activity className="size-8 text-accent" />
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={test}
+            disabled={busy || !baseURL || !apiKey}
+            className="btn-secondary"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Boxes className="size-4" />}
+            Test
+          </button>
+          <button type="submit" disabled={busy || !baseURL || !apiKey} className="btn-primary">
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            Save
+          </button>
         </div>
-      </div>
-
-      {nodes.map((node) => (
-        <div key={node.label} className={`absolute ${node.className}`}>
-          <div className="w-24 rounded-lg border border-white/10 bg-bg/80 p-2 backdrop-blur">
-            <div className="flex items-center justify-between text-[10px] text-fg-muted">
-              <span>{node.label}</span>
-              <span className="tabular-nums">{formatPct(node.value, 0)}</span>
-            </div>
-            <ProgressBar value={node.value} tone={node.tone} className="mt-2 h-1.5" />
-          </div>
-        </div>
-      ))}
-
-      <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-2 text-xs text-fg-muted">
-        <div className="flex items-center gap-2">
-          <span className={`size-2 rounded-full ${connected ? 'bg-emerald-300' : 'bg-rose-300'}`} />
-          {connected ? 'stream connected' : 'stream offline'}
-        </div>
-        <div className="tabular-nums">
-          RX {formatBytesPerSec(rx)} / TX {formatBytesPerSec(tx)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MicroRead({ label, value, pct, tone }: { label: string; value: string; pct: number; tone: 'teal' | 'blue' | 'amber' }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
-      <div className="text-xs text-fg-muted">{label}</div>
-      <div className="mt-2 text-lg font-semibold tabular-nums">{value}</div>
-      <ProgressBar value={pct} tone={tone} className="mt-3 h-1.5" />
-    </div>
-  );
-}
-
-function ChartPanel({ title, value, color, children }: { title: string; value: string; color: string; children: React.ReactNode }) {
-  return (
-    <div className="card card-pad">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">{title}</div>
-        <div className="text-sm font-semibold tabular-nums" style={{ color }}>{value}</div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function LoadCol({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
-      <div className="text-[10px] uppercase text-fg-subtle">{label}</div>
-      <div className="mt-2 text-xl font-semibold tabular-nums">{value.toFixed(2)}</div>
-    </div>
-  );
-}
-
-function GaugeLine({ label, value, tone, text }: { label: string; value: number; tone: 'violet' | 'blue'; text: string }) {
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-xs">
-        <span className="text-fg-muted">{label}</span>
-        <span className="tabular-nums">{text}</span>
-      </div>
-      <ProgressBar value={value} tone={tone} />
+      </form>
     </div>
   );
 }

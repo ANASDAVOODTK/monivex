@@ -1,21 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { EmptyState, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
 import { openLogSocket } from '@/lib/ws';
 import { FileText, Pause, Play, Search, Trash2 } from 'lucide-react';
 
 export default function LogsPage() {
-  return (
-    <DashboardShell>
-      <Logs />
-    </DashboardShell>
-  );
+  return <Logs />;
 }
 
 function Logs() {
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
   const [sources, setSources] = useState<string[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [paused, setPaused] = useState(false);
@@ -31,13 +29,15 @@ function Logs() {
   }, [paused]);
 
   useEffect(() => {
-    api.logSources().then(setSources).catch(() => setSources([]));
-  }, []);
+    if (!serverId) return;
+    api.logSources(serverId).then(setSources).catch(() => setSources([]));
+  }, [serverId]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || !serverId) return;
     setLines([]);
     const ws = openLogSocket(
+      serverId,
       selected,
       (line) => {
         if (pausedRef.current) return;
@@ -55,7 +55,7 @@ function Logs() {
     return () => {
       ws.close();
     };
-  }, [selected]);
+  }, [serverId, selected]);
 
   useEffect(() => {
     if (autoScrollRef.current && scrollRef.current && !paused) {

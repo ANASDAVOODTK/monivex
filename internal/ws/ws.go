@@ -43,6 +43,11 @@ func NewServer(h *hub.Hub, cfg *config.Config, a *auth.Service, docker *collecto
 }
 
 func (s *Server) checkAuth(r *http.Request) bool {
+	if key := auth.ExtractAPIKey(r); key != "" {
+		if _, err := s.auth.VerifyAPIKey(r.Context(), key); err == nil {
+			return true
+		}
+	}
 	tok := auth.ExtractToken(r)
 	if tok == "" {
 		return false

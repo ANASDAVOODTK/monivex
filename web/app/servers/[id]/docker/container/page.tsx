@@ -2,11 +2,10 @@
 
 import Link from 'next/link';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams, useSearchParams } from 'next/navigation';
 import { EmptyState, MetricTile, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import { formatBytes, formatPct } from '@/lib/utils';
 import { ArrowLeft, Container as ContainerIcon, Loader2, Logs, Play, RotateCcw, Square, Terminal } from 'lucide-react';
 import DockerExecTerminal from '../terminal';
@@ -15,17 +14,16 @@ import DockerLogsTerminal from '../logs-terminal';
 type ExecShell = 'auto' | 'bash' | 'sh';
 
 export default function DockerContainerPage() {
-  return (
-    <DashboardShell>
-      <DockerContainerDetails />
-    </DashboardShell>
-  );
+  return <DockerContainerDetails />;
 }
 
 function DockerContainerDetails() {
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
   const searchParams = useSearchParams();
   const containerId = searchParams.get('id') ?? '';
-  const containers = useMetrics((s) => s.current?.docker);
+  const { current } = useServerMetrics(serverId);
+  const containers = current?.docker;
   const container = useMemo(() => (containers ?? []).find((c) => c.id === containerId) ?? null, [containers, containerId]);
 
   const [loading, setLoading] = useState<'start' | 'stop' | 'restart' | null>(null);
@@ -38,22 +36,22 @@ function DockerContainerDetails() {
       setLoading(action);
       setError(null);
       try {
-        if (action === 'start') await api.dockerStart(containerId);
-        else if (action === 'stop') await api.dockerStop(containerId);
-        else await api.dockerRestart(containerId);
+        if (action === 'start') await api.dockerStart(serverId, containerId);
+        else if (action === 'stop') await api.dockerStop(serverId, containerId);
+        else await api.dockerRestart(serverId, containerId);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Action failed');
       } finally {
         setLoading(null);
       }
     },
-    [containerId],
+    [serverId, containerId],
   );
 
   if (!containerId || !container) {
     return (
       <div className="space-y-4">
-        <Link href="/docker" className="btn-ghost inline-flex w-fit items-center gap-2">
+        <Link href={`/servers/${serverId}/docker`} className="btn-ghost inline-flex w-fit items-center gap-2">
           <ArrowLeft className="size-4" />
           Back to containers
         </Link>
@@ -70,7 +68,7 @@ function DockerContainerDetails() {
 
   return (
     <div className="space-y-6">
-      <Link href="/docker" className="btn-ghost inline-flex w-fit items-center gap-2">
+      <Link href={`/servers/${serverId}/docker`} className="btn-ghost inline-flex w-fit items-center gap-2">
         <ArrowLeft className="size-4" />
         Back to containers
       </Link>
@@ -145,7 +143,7 @@ function DockerContainerDetails() {
           <span className="font-medium">Live logs</span>
           <span className="font-mono text-xs text-fg-muted">{container.name}</span>
         </div>
-        <DockerLogsTerminal key={container.id} containerId={container.id} />
+        <DockerLogsTerminal key={container.id} serverId={serverId} containerId={container.id} />
       </div>
 
       {showShell && isRunning && (
@@ -169,6 +167,7 @@ function DockerContainerDetails() {
           </div>
           <DockerExecTerminal
             key={`${container.id}-${execShell}`}
+            serverId={serverId}
             containerId={container.id}
             shell={execShell}
             onClose={() => setShowShell(false)}

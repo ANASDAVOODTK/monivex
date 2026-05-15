@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
 import type {
@@ -23,14 +23,12 @@ import {
 } from 'lucide-react';
 
 export default function TemplatesPage() {
-  return (
-    <DashboardShell>
-      <TemplatesPanel />
-    </DashboardShell>
-  );
+  return <TemplatesPanel />;
 }
 
 function TemplatesPanel() {
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
   const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
   const [engine, setEngine] = useState<TemplateEngineStatus | null>(null);
   const [storageRoot, setStorageRoot] = useState<string>('');
@@ -40,11 +38,12 @@ function TemplatesPanel() {
   const [actionId, setActionId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!serverId) return;
     setErr(null);
     try {
       const [catalog, deps] = await Promise.all([
-        api.templatesCatalog(),
-        api.deploymentList(),
+        api.templatesCatalog(serverId),
+        api.deploymentList(serverId),
       ]);
       setTemplates(catalog.templates);
       setEngine(catalog.engine);
@@ -55,7 +54,7 @@ function TemplatesPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [serverId]);
 
   useEffect(() => {
     refresh();
@@ -132,7 +131,7 @@ function TemplatesPanel() {
         <div className="mb-3 text-sm font-semibold text-fg">Catalog</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {templates.map((t) => (
-            <TemplateCard key={t.id} template={t} />
+            <TemplateCard key={t.id} serverId={serverId} template={t} />
           ))}
         </div>
       </section>
@@ -165,6 +164,7 @@ function TemplatesPanel() {
                   {deployments.map((d) => (
                     <DeploymentRow
                       key={d.id}
+                      serverId={serverId}
                       dep={d}
                       busy={actionId}
                       onRun={run}
@@ -180,10 +180,10 @@ function TemplatesPanel() {
   );
 }
 
-function TemplateCard({ template }: { template: TemplateDefinition }) {
+function TemplateCard({ serverId, template }: { serverId: string; template: TemplateDefinition }) {
   return (
     <Link
-      href={`/templates/deploy?template=${encodeURIComponent(template.id)}`}
+      href={`/servers/${encodeURIComponent(serverId)}/templates/deploy?template=${encodeURIComponent(template.id)}`}
       className="card card-pad block transition-colors hover:border-accent/40 hover:bg-white/[0.03]"
     >
       <div className="flex items-start justify-between gap-3">
@@ -206,10 +206,12 @@ function TemplateCard({ template }: { template: TemplateDefinition }) {
 }
 
 function DeploymentRow({
+  serverId,
   dep,
   busy,
   onRun,
 }: {
+  serverId: string;
   dep: DeploymentSummary;
   busy: string | null;
   onRun: (key: string, fn: () => Promise<unknown>) => void;
@@ -220,7 +222,7 @@ function DeploymentRow({
   return (
     <tr className="table-row">
       <td className="px-4 py-3">
-        <Link href={`/templates/deployment?id=${encodeURIComponent(dep.id)}`} className="font-medium text-fg hover:text-accent">
+        <Link href={`/servers/${encodeURIComponent(serverId)}/templates/deployment?id=${encodeURIComponent(dep.id)}`} className="font-medium text-fg hover:text-accent">
           {dep.name}
         </Link>
         <div className="mt-1 font-mono text-[10px] text-fg-subtle">slug {dep.slug}</div>
@@ -247,7 +249,7 @@ function DeploymentRow({
               title="Start"
               disabled={inFlight}
               loading={b('start')}
-              onClick={() => onRun(`${dep.id}-start`, () => api.deploymentStart(dep.id))}
+              onClick={() => onRun(`${dep.id}-start`, () => api.deploymentStart(serverId, dep.id))}
             >
               <Play className="size-3.5" />
             </Mini>
@@ -257,7 +259,7 @@ function DeploymentRow({
               title="Stop"
               disabled={inFlight}
               loading={b('stop')}
-              onClick={() => onRun(`${dep.id}-stop`, () => api.deploymentStop(dep.id))}
+              onClick={() => onRun(`${dep.id}-stop`, () => api.deploymentStop(serverId, dep.id))}
             >
               <Square className="size-3.5" />
             </Mini>
@@ -266,7 +268,7 @@ function DeploymentRow({
             title="Update (pull + recreate)"
             disabled={inFlight}
             loading={b('update')}
-            onClick={() => onRun(`${dep.id}-update`, () => api.deploymentUpdate(dep.id))}
+            onClick={() => onRun(`${dep.id}-update`, () => api.deploymentUpdate(serverId, dep.id))}
           >
             <RotateCcw className="size-3.5" />
           </Mini>
@@ -277,7 +279,7 @@ function DeploymentRow({
             loading={b('delete')}
             onClick={() => {
               if (confirm(`Delete deployment "${dep.name}"? This removes containers AND volumes.`)) {
-                onRun(`${dep.id}-delete`, () => api.deploymentDelete(dep.id, true));
+                onRun(`${dep.id}-delete`, () => api.deploymentDelete(serverId, dep.id, true));
               }
             }}
           >

@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { useMetricsSocket } from '@/lib/ws';
@@ -42,12 +42,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 }
 
 function Inner({ children }: { children: ReactNode }) {
-  useMetricsSocket();
+  const params = useParams<{ id?: string | string[] }>();
+  const serverId = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  useMetricsSocket(serverId ?? null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
     <div className="app-bg flex h-screen overflow-hidden text-fg">
-      <Sidebar onNavigate={() => setMobileNavOpen(false)} />
+      <Sidebar serverId={serverId} onNavigate={() => setMobileNavOpen(false)} />
       {mobileNavOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <button
@@ -55,7 +57,7 @@ function Inner({ children }: { children: ReactNode }) {
             aria-label="Close navigation"
             onClick={() => setMobileNavOpen(false)}
           />
-          <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
+          <Sidebar serverId={serverId} mobile onNavigate={() => setMobileNavOpen(false)} />
         </div>
       )}
       <div className="flex-1 flex flex-col overflow-hidden">

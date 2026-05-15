@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { PageHeader, StatusBadge } from '@/components/ui';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import type { ServiceUnit } from '@/lib/types';
 import { CheckCircle2, Search, ServerCog, TriangleAlert } from 'lucide-react';
 
@@ -11,15 +11,14 @@ type Filter = 'all' | 'active' | 'failed';
 const EMPTY_SERVICES: ServiceUnit[] = [];
 
 export default function ServicesPage() {
-  return (
-    <DashboardShell>
-      <Services />
-    </DashboardShell>
-  );
+  return <Services />;
 }
 
 function Services() {
-  const services = useMetrics((s) => s.current?.services ?? EMPTY_SERVICES);
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
+  const { current } = useServerMetrics(serverId);
+  const services = current?.services ?? EMPTY_SERVICES;
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 

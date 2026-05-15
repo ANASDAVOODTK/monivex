@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { NodeApp, NodeAppsResponse } from '@/lib/types';
@@ -9,30 +9,29 @@ import { formatBytes, formatDuration } from '@/lib/utils';
 import { Loader2, Package, Play, Plus, RefreshCw, RotateCcw, Square, Trash2 } from 'lucide-react';
 
 export default function NodeAppsPage() {
-  return (
-    <DashboardShell>
-      <NodeAppsPanel />
-    </DashboardShell>
-  );
+  return <NodeAppsPanel />;
 }
 
 function NodeAppsPanel() {
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
   const [data, setData] = useState<NodeAppsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!serverId) return;
     setErr(null);
     try {
-      const r = await api.nodeApps();
+      const r = await api.nodeApps(serverId);
       setData(r);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [serverId]);
 
   useEffect(() => {
     load();
@@ -110,7 +109,7 @@ function NodeAppsPanel() {
 
       {pm2.list_error && <Notice tone="warning">List: {pm2.list_error}</Notice>}
 
-      {pm2.available && pm2.can_start_new && <StartAppForm onCreated={() => load()} onError={setErr} />}
+      {pm2.available && pm2.can_start_new && <StartAppForm serverId={serverId} onCreated={() => load()} onError={setErr} />}
 
       {pm2.available && pm2.can_start_new === false && (
         <Notice>
@@ -135,7 +134,7 @@ function NodeAppsPanel() {
               </thead>
               <tbody>
                 {apps.map((a) => (
-                  <AppRow key={a.pm_id} app={a} busy={actionId} onRun={run} />
+                  <AppRow key={a.pm_id} app={a} busy={actionId} onRun={run} serverId={serverId} />
                 ))}
                 {apps.length === 0 && (
                   <tr>
@@ -157,10 +156,12 @@ function AppRow({
   app: a,
   busy,
   onRun,
+  serverId,
 }: {
   app: NodeApp;
   busy: string | null;
   onRun: (key: string, fn: () => Promise<unknown>) => void;
+  serverId: string;
 }) {
   const b = (suffix: string) => busy === `${a.pm_id}-${suffix}`;
   const online = a.status === 'online';
@@ -190,7 +191,7 @@ function AppRow({
           {!online && (
             <MiniBtn
               title="Start"
-              onClick={() => onRun(`${a.pm_id}-start`, () => api.nodeAppStart(a.pm_id))}
+              onClick={() => onRun(`${a.pm_id}-start`, () => api.nodeAppStart(serverId, a.pm_id))}
               loading={b('start')}
             >
               <Play className="size-3.5" />
@@ -199,7 +200,7 @@ function AppRow({
           {online && (
             <MiniBtn
               title="Stop"
-              onClick={() => onRun(`${a.pm_id}-stop`, () => api.nodeAppStop(a.pm_id))}
+              onClick={() => onRun(`${a.pm_id}-stop`, () => api.nodeAppStop(serverId, a.pm_id))}
               loading={b('stop')}
             >
               <Square className="size-3.5" />
@@ -207,14 +208,14 @@ function AppRow({
           )}
           <MiniBtn
             title="Restart"
-            onClick={() => onRun(`${a.pm_id}-restart`, () => api.nodeAppRestart(a.pm_id))}
+            onClick={() => onRun(`${a.pm_id}-restart`, () => api.nodeAppRestart(serverId, a.pm_id))}
             loading={b('restart')}
           >
             <RotateCcw className="size-3.5" />
           </MiniBtn>
           <MiniBtn
             title="Delete from PM2"
-            onClick={() => onRun(`${a.pm_id}-delete`, () => api.nodeAppDelete(a.pm_id))}
+            onClick={() => onRun(`${a.pm_id}-delete`, () => api.nodeAppDelete(serverId, a.pm_id))}
             loading={b('delete')}
             danger
           >
@@ -256,7 +257,15 @@ function MiniBtn({
   );
 }
 
-function StartAppForm({ onCreated, onError }: { onCreated: () => void; onError: (m: string | null) => void }) {
+function StartAppForm({
+  serverId,
+  onCreated,
+  onError,
+}: {
+  serverId: string;
+  onCreated: () => void;
+  onError: (m: string | null) => void;
+}) {
   const [script, setScript] = useState('');
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
@@ -267,7 +276,7 @@ function StartAppForm({ onCreated, onError }: { onCreated: () => void; onError: 
     onError(null);
     setLoading(true);
     try {
-      await api.nodeAppCreate({
+      await api.nodeAppCreate(serverId, {
         script: script.trim(),
         name: name.trim(),
         cwd: cwd.trim() || undefined,

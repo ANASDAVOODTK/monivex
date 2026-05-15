@@ -1,21 +1,19 @@
 'use client';
 
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { EmptyState, MetricTile, PageHeader, ProgressBar, SectionHeader } from '@/components/ui';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import { formatBytes, formatBytesPerSec, formatPct } from '@/lib/utils';
 import { Database, HardDrive, Network, Route } from 'lucide-react';
 
 export default function DisksPage() {
-  return (
-    <DashboardShell>
-      <Disks />
-    </DashboardShell>
-  );
+  return <Disks />;
 }
 
 function Disks() {
-  const current = useMetrics((s) => s.current);
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
+  const { current } = useServerMetrics(serverId);
   const disks = current?.disks ?? [];
   const networks = current?.network ?? [];
 

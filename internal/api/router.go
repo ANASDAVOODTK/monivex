@@ -12,34 +12,40 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/ANASDAVOODTK/server-monitor/internal/aggregator"
 	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
 	"github.com/ANASDAVOODTK/server-monitor/internal/config"
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 	"github.com/ANASDAVOODTK/server-monitor/internal/nodejs"
+	"github.com/ANASDAVOODTK/server-monitor/internal/servers"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 	"github.com/ANASDAVOODTK/server-monitor/internal/templates"
 	"github.com/ANASDAVOODTK/server-monitor/internal/ws"
 )
 
 type Server struct {
-	cfg       *config.Config
-	store     *store.Store
-	auth      *auth.Service
-	hub       *hub.Hub
-	ws        *ws.Server
-	templates *templates.Service
-	ui        fs.FS // optional: embedded UI; can be nil during dev
+	cfg        *config.Config
+	store      *store.Store
+	auth       *auth.Service
+	hub        *hub.Hub
+	ws         *ws.Server
+	templates  *templates.Service
+	registry   *servers.Registry
+	aggregator *aggregator.Aggregator
+	ui         fs.FS // optional: embedded UI; can be nil during dev
 }
 
-func NewServer(cfg *config.Config, st *store.Store, a *auth.Service, h *hub.Hub, tpl *templates.Service, uiFS fs.FS) *Server {
+func NewServer(cfg *config.Config, st *store.Store, a *auth.Service, h *hub.Hub, tpl *templates.Service, reg *servers.Registry, agg *aggregator.Aggregator, uiFS fs.FS) *Server {
 	return &Server{
-		cfg:       cfg,
-		store:     st,
-		auth:      a,
-		hub:       h,
-		ws:        ws.NewServer(h, cfg, a, h.Docker()),
-		templates: tpl,
-		ui:        uiFS,
+		cfg:        cfg,
+		store:      st,
+		auth:       a,
+		hub:        h,
+		ws:         ws.NewServer(h, cfg, a, h.Docker()),
+		templates:  tpl,
+		registry:   reg,
+		aggregator: agg,
+		ui:         uiFS,
 	}
 }
 
@@ -91,14 +97,38 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
 			r.Post("/templates/deployments/{id}/edit", s.handleDeploymentEdit)
 			r.Post("/templates/deployments/{id}/delete", s.handleDeploymentDelete)
+
+			// ---- Multi-server: registry + per-server API ----
+			r.Get("/servers", s.handleServersList)
+			r.Post("/servers", s.handleServerCreate)
+			r.Post("/servers/test", s.handleServerTest)
+			r.Put("/servers/{id}", s.handleServerUpdate)
+			r.Delete("/servers/{id}", s.handleServerDelete)
+			r.Route("/servers/{serverId}", func(rr chi.Router) {
+				s.registerServerScopedRoutes(rr)
+			})
+
+			// ---- API keys (JWT only — never API-key callable) ----
+			r.Group(func(rr chi.Router) {
+				rr.Use(s.jwtOnlyGuard)
+				rr.Get("/api-keys", s.handleAPIKeysList)
+				rr.Post("/api-keys", s.handleAPIKeysCreate)
+				rr.Delete("/api-keys/{id}", s.handleAPIKeysDelete)
+			})
 		})
 	})
 
-	// WebSockets — auth checked inside the handler (token via cookie or ?token=)
+	// WebSockets — auth checked inside the handler (token via cookie, ?token=, or ?api_key=)
 	r.Get("/ws/metrics", s.ws.HandleMetrics)
 	r.Get("/ws/logs", s.ws.HandleLogs)
 	r.Get("/ws/docker/exec/{id}", s.ws.HandleDockerExec)
 	r.Get("/ws/docker/logs/{id}", s.ws.HandleDockerLogs)
+
+	// Server-scoped WebSockets — proxy or local based on serverId.
+	r.Get("/ws/servers/{serverId}/metrics", s.handleScopedWSMetrics)
+	r.Get("/ws/servers/{serverId}/logs", s.handleScopedWSLogs)
+	r.Get("/ws/servers/{serverId}/docker/exec/{id}", s.handleScopedWSDockerExec)
+	r.Get("/ws/servers/{serverId}/docker/logs/{id}", s.handleScopedWSDockerLogs)
 
 	// Static UI
 	if s.ui != nil {
@@ -632,6 +662,27 @@ func (s *Server) spaHandler() http.Handler {
 			if _, err := fs.Stat(s.ui, clean+".html"); err == nil {
 				s.serveFromFS(w, r, clean+".html")
 				return
+			}
+			// Dynamic /servers/{id}[/...] routes are pre-rendered under the
+			// sentinel /servers/_/... path because Next.js static export needs
+			// a concrete param. Map the requested id to the sentinel so we
+			// serve the closest pre-rendered HTML (the React router then takes
+			// over with the real id from window.location).
+			if rest, ok := strings.CutPrefix(clean, "servers/"); ok {
+				// rest is e.g. "abc123" or "abc123/processes"
+				parts := strings.SplitN(rest, "/", 2)
+				candidate := "servers/_"
+				if len(parts) == 2 && parts[1] != "" {
+					candidate = "servers/_/" + parts[1]
+				}
+				if _, err := fs.Stat(s.ui, candidate+".html"); err == nil {
+					s.serveFromFS(w, r, candidate+".html")
+					return
+				}
+				if _, err := fs.Stat(s.ui, candidate+"/index.html"); err == nil {
+					s.serveFromFS(w, r, candidate+"/index.html")
+					return
+				}
 			}
 			// True SPA fallback — serve index.html for client-side routing
 			s.serveFromFS(w, r, "index.html")

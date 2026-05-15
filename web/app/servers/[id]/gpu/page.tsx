@@ -1,21 +1,19 @@
 'use client';
 
-import { DashboardShell } from '@/components/dashboard-shell';
+import { useParams } from 'next/navigation';
 import { EmptyState, MetricTile, PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
-import { useMetrics } from '@/lib/store';
+import { useServerMetrics } from '@/lib/store';
 import { formatBytes, formatPct } from '@/lib/utils';
 import { Activity, Cpu, Gauge, MemoryStick, Thermometer, Wind, Zap } from 'lucide-react';
 
 export default function GPUPage() {
-  return (
-    <DashboardShell>
-      <GPUView />
-    </DashboardShell>
-  );
+  return <GPUView />;
 }
 
 function GPUView() {
-  const current = useMetrics((s) => s.current);
+  const params = useParams<{ id: string }>();
+  const serverId = (params?.id ?? '') as string;
+  const { current } = useServerMetrics(serverId);
   const gpus = current?.gpus ?? [];
 
   if (gpus.length === 0) {
