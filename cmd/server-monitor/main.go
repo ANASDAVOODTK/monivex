@@ -18,6 +18,7 @@ import (
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 	"github.com/ANASDAVOODTK/server-monitor/internal/templates"
+	qdranttpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/qdrant"
 	supabasetpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/supabase"
 )
 
@@ -52,6 +53,7 @@ func main() {
 	go h.Run(ctx)
 
 	tplReg := templates.NewRegistry()
+	tplReg.Register(qdranttpl.New())
 	tplReg.Register(supabasetpl.New())
 	tplSvc := templates.NewService(tplReg, st, cfg.DataDir, cfg.Templates.StorageRoot)
 	go runTemplateReconciler(ctx, tplSvc)
