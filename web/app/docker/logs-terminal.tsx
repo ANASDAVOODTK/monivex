@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { wsBase } from '@/lib/ws';
+import { wsUrl } from '@/lib/ws';
 
 export default function DockerLogsTerminal({
   containerId,
@@ -52,7 +52,7 @@ export default function DockerLogsTerminal({
     }
 
     function connect() {
-      const url = `${wsBase()}/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`;
+      const url = wsUrl(`/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`);
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
 

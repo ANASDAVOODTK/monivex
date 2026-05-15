@@ -187,12 +187,17 @@ func (s *Service) Verify(token string) (*Claims, error) {
 func CookieName() string { return cookieName }
 
 // IssueCookie returns an *http.Cookie carrying the token.
+// HttpOnly is false so the frontend JS can read the token and pass it as
+// a query parameter when opening cross-origin WebSocket connections (the
+// dev server runs on a different port than the Go backend). For a LAN
+// monitoring tool this is an acceptable trade-off; the cookie is still
+// SameSite=Lax and optionally Secure.
 func (s *Service) IssueCookie(token string, secure bool) *http.Cookie {
 	return &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
-		HttpOnly: true,
+		HttpOnly: false,
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(tokenLifetime),
@@ -204,7 +209,7 @@ func (s *Service) ClearCookie(secure bool) *http.Cookie {
 		Name:     cookieName,
 		Value:    "",
 		Path:     "/",
-		HttpOnly: true,
+		HttpOnly: false,
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,

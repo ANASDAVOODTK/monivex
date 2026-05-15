@@ -19,6 +19,24 @@ export function wsBase(): string {
   return `${proto}://${host}`;
 }
 
+/**
+ * Builds a full WebSocket URL with auth token appended when needed.
+ * In dev mode the WS goes cross-origin (port 3000 → 8080) so the browser
+ * won't send cookies; we read sm_token from document.cookie and pass it
+ * as a query parameter instead.
+ */
+export function wsUrl(path: string): string {
+  const base = wsBase();
+  const url = new URL(path, base);
+  if (process.env.NODE_ENV === 'development') {
+    const match = document.cookie.match(/(?:^|;\s*)sm_token=([^;]+)/);
+    if (match) {
+      url.searchParams.set('token', match[1]);
+    }
+  }
+  return url.toString();
+}
+
 export function useMetricsSocket() {
   const setSnapshot = useMetrics((s) => s.setSnapshot);
   const setConnected = useMetrics((s) => s.setConnected);
@@ -31,8 +49,7 @@ export function useMetricsSocket() {
 
     const connect = () => {
       if (cancelledRef.current) return;
-      const url = `${wsBase()}/ws/metrics`;
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(wsUrl('/ws/metrics'));
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -68,8 +85,7 @@ export function useMetricsSocket() {
 }
 
 export function openLogSocket(path: string, onLine: (line: string) => void, onError: (msg: string) => void): WebSocket {
-  const url = `${wsBase()}/ws/logs?path=${encodeURIComponent(path)}`;
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(wsUrl(`/ws/logs?path=${encodeURIComponent(path)}`));
   ws.onmessage = (ev) => {
     try {
       const f = JSON.parse(ev.data) as { type: string; line?: string; err?: string };
