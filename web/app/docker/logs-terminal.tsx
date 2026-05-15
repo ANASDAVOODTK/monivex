@@ -56,22 +56,19 @@ export default function DockerLogsTerminal({
       terminal.writeln(`\x1b[${color}m* ${msg}\x1b[0m`);
     }
 
-    async function preflight(url: string) {
-      // Confirm the backend is even reachable before we try the WS upgrade.
+    async function preflight() {
+      // Confirm the backend is reachable + authenticated before the WS upgrade.
+      // Same-origin (Next.js dev rewrite proxies to backend), so cookies flow.
       try {
-        const httpUrl = url.replace(/^ws/, 'http').replace(/\?.*$/, '');
-        const probe = httpUrl.replace('/ws/docker/logs/', '/api/v1/docker/containers/');
-        const res = await fetch(probe.split('/api/v1/docker/containers/')[0] + '/api/v1/me', {
+        const res = await fetch('/api/v1/me', {
           credentials: 'include',
-          mode: 'cors',
         });
         logLine('2;37', `Preflight /api/v1/me → HTTP ${res.status}`);
         if (res.status === 401) {
-          logLine('1;31', 'Backend says you are NOT logged in (401). Cookie is not reaching it.');
+          logLine('1;31', 'Backend says you are NOT logged in (401). Log out + log in again.');
         }
       } catch (err) {
         logLine('1;31', `Preflight fetch failed: ${(err as Error).message}`);
-        logLine('2;37', '  → backend is unreachable from the browser at that host:port (network/firewall/binding).');
       }
     }
 
@@ -93,7 +90,7 @@ export default function DockerLogsTerminal({
       logLine('2;37', `URL: ${url}`);
       logLine('2;37', `page origin: ${window.location.origin}`);
 
-      preflight(url);
+      preflight();
 
       let constructed: WebSocket;
       try {

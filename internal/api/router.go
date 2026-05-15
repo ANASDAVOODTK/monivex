@@ -48,6 +48,7 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(s.corsMiddleware)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Timeout(30 * time.Second))
@@ -578,6 +579,30 @@ func (s *Server) handleDeploymentDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, 202, map[string]bool{"ok": true})
+}
+
+// corsMiddleware lets the dev frontend (Next.js on a different port) and
+// other browser clients call the API cross-origin while still using cookie
+// auth. We echo the request Origin (rather than "*") because credentialed
+// requests require a specific origin. Only HTTP headers are set; WebSocket
+// origin checks are handled by the upgrader.
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+			w.Header().Set("Access-Control-Max-Age", "600")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // SPA handler: serve embedded UI; for unknown extensionless paths fall back to index.html.
