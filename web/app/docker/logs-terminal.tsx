@@ -52,8 +52,12 @@ export default function DockerLogsTerminal({
     }
 
     function logLine(color: string, msg: string) {
-      if (!terminal || disposed) return;
-      terminal.writeln(`\x1b[${color}m* ${msg}\x1b[0m`);
+      if (!terminal) return;
+      try {
+        terminal.writeln(`\x1b[${color}m* ${msg}\x1b[0m`);
+      } catch {
+        // If xterm is already torn down, ignore write failures.
+      }
     }
 
     async function preflight() {
@@ -166,6 +170,7 @@ export default function DockerLogsTerminal({
       const { Terminal } = await import('@xterm/xterm');
       const { FitAddon } = await import('@xterm/addon-fit');
       await import('@xterm/xterm/css/xterm.css');
+      if (disposed) return;
 
       terminal = new Terminal({
         cursorBlink: false,
@@ -203,9 +208,14 @@ export default function DockerLogsTerminal({
       terminal.loadAddon(fitAddon);
       terminal.open(element);
       fitAddon.fit();
+      if (disposed) {
+        terminal.dispose();
+        return;
+      }
 
       terminal.writeln('\x1b[1;36m* Connecting to log stream... (diag v3)\x1b[0m');
       terminal.writeln('\x1b[2;37m* If you only see this line, your dev frontend was not restarted.\x1b[0m');
+      terminal.writeln('\x1b[2;37m* connect() bootstrapped\x1b[0m');
       try {
         connect();
       } catch (err) {
