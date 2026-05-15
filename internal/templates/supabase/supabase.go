@@ -35,8 +35,8 @@ func (d *Driver) Definition() templates.Definition {
 			{Key: "dashboard_password", Label: "Studio admin password", Type: templates.FieldPassword, Required: true, Group: "studio"},
 			{Key: "postgres_password", Label: "Postgres password", Type: templates.FieldPassword, Required: true, Description: "Used by the postgres superuser and all internal services.", Group: "database"},
 			{Key: "postgres_db", Label: "Postgres database", Type: templates.FieldText, Required: true, Default: "postgres", Group: "database"},
-			{Key: "site_url", Label: "Site URL", Type: templates.FieldText, Required: false, Default: "http://localhost:3000", Description: "Used by GoTrue for email links and redirects.", Group: "general"},
-			{Key: "public_api_url", Label: "Public API URL", Type: templates.FieldText, Required: false, Default: "http://localhost:8000", Description: "Browser-facing Supabase URL (Kong). Use your server IP/domain, not localhost, when accessing from another machine.", Group: "general"},
+			{Key: "site_url", Label: "Site URL", Type: templates.FieldText, Required: false, Description: "Your app frontend URL. Used by GoTrue for email links and redirects. Defaults to the Kong URL if left empty.", Group: "general"},
+			{Key: "public_api_url", Label: "Public API URL", Type: templates.FieldText, Required: false, Description: "Browser-facing Supabase URL (Kong). Use your server IP/domain, not localhost, when accessing from another machine.", Group: "general"},
 			{Key: "smtp_host", Label: "SMTP host", Type: templates.FieldText, Required: false, Group: "smtp"},
 			{Key: "smtp_port", Label: "SMTP port", Type: templates.FieldText, Required: false, Default: "587", Group: "smtp"},
 			{Key: "smtp_user", Label: "SMTP user", Type: templates.FieldText, Required: false, Group: "smtp"},
@@ -126,8 +126,8 @@ ANON_KEY={{ .Config.anon_key }}
 SERVICE_ROLE_KEY={{ .Config.service_role_key }}
 DASHBOARD_USERNAME={{ .Config.dashboard_user }}
 DASHBOARD_PASSWORD={{ .Config.dashboard_password }}
-SITE_URL={{ default .Config.site_url "http://localhost:3000" }}
-PUBLIC_API_URL={{ default .Config.public_api_url "http://localhost:8000" }}
+SITE_URL={{ default .Config.site_url (printf "http://localhost:%d" .Ports.kong_http) }}
+PUBLIC_API_URL={{ default .Config.public_api_url (printf "http://localhost:%d" .Ports.kong_http) }}
 SMTP_HOST={{ .Config.smtp_host }}
 SMTP_PORT={{ default .Config.smtp_port "587" }}
 SMTP_USER={{ .Config.smtp_user }}

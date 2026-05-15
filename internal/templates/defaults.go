@@ -25,6 +25,14 @@ type DefaultGenerator interface {
 	GenerateConfig() (map[string]string, error)
 }
 
+// PortAwareDefaultGenerator extends DefaultGenerator with knowledge of the
+// host ports actually assigned to this deployment, so URL-shaped defaults
+// (Site URL, Public API URL, etc.) line up with the real port mapping after
+// the auto-port-picker has bumped any conflicts.
+type PortAwareDefaultGenerator interface {
+	GenerateConfigWithPorts(ports map[string]int) (map[string]string, error)
+}
+
 // GenerateDefaults builds suggested config + free host ports for a template.
 // Any conflicts with previously-deployed projects or with ports that are
 // already in use on the host are resolved by stepping up to the next free port.
@@ -45,16 +53,9 @@ func (s *Service) GenerateDefaults(ctx context.Context, templateID string) (*Def
 			out.Config[f.Key] = f.Default
 		}
 	}
-	if gen, ok := driver.(DefaultGenerator); ok {
-		generated, err := gen.GenerateConfig()
-		if err != nil {
-			return nil, fmt.Errorf("generate config: %w", err)
-		}
-		for k, v := range generated {
-			out.Config[k] = v
-		}
-	}
 
+	// Resolve ports BEFORE generating config so a port-aware driver can
+	// build URL defaults that match the actually-assigned host ports.
 	used, err := s.usedPorts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("collect used ports: %w", err)
@@ -66,6 +67,24 @@ func (s *Service) GenerateDefaults(ctx context.Context, templateID string) (*Def
 		if free != p.Default {
 			out.Notes = append(out.Notes, fmt.Sprintf(
 				"port %d (%s) is already in use; switched to %d", p.Default, p.Key, free))
+		}
+	}
+
+	if gen, ok := driver.(PortAwareDefaultGenerator); ok {
+		generated, err := gen.GenerateConfigWithPorts(out.Ports)
+		if err != nil {
+			return nil, fmt.Errorf("generate config: %w", err)
+		}
+		for k, v := range generated {
+			out.Config[k] = v
+		}
+	} else if gen, ok := driver.(DefaultGenerator); ok {
+		generated, err := gen.GenerateConfig()
+		if err != nil {
+			return nil, fmt.Errorf("generate config: %w", err)
+		}
+		for k, v := range generated {
+			out.Config[k] = v
 		}
 	}
 	return out, nil

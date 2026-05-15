@@ -51,36 +51,78 @@ export default function DockerLogsTerminal({
       }, 1500);
     }
 
+    function logLine(color: string, msg: string) {
+      if (!terminal || disposed) return;
+      terminal.writeln(`\x1b[${color}m* ${msg}\x1b[0m`);
+    }
+
+    async function preflight(url: string) {
+      // Confirm the backend is even reachable before we try the WS upgrade.
+      try {
+        const httpUrl = url.replace(/^ws/, 'http').replace(/\?.*$/, '');
+        const probe = httpUrl.replace('/ws/docker/logs/', '/api/v1/docker/containers/');
+        const res = await fetch(probe.split('/api/v1/docker/containers/')[0] + '/api/v1/me', {
+          credentials: 'include',
+          mode: 'cors',
+        });
+        logLine('2;37', `Preflight /api/v1/me → HTTP ${res.status}`);
+        if (res.status === 401) {
+          logLine('1;31', 'Backend says you are NOT logged in (401). Cookie is not reaching it.');
+        }
+      } catch (err) {
+        logLine('1;31', `Preflight fetch failed: ${(err as Error).message}`);
+        logLine('2;37', '  → backend is unreachable from the browser at that host:port (network/firewall/binding).');
+      }
+    }
+
     function connect() {
+      const hasToken = /(?:^|;\s*)sm_token=/.test(document.cookie);
+      logLine('2;37', `cookie has sm_token: ${hasToken ? 'yes' : 'NO (cookie is HttpOnly or you are not logged in)'}`);
+      if (!hasToken) {
+        logLine('1;33', 'No sm_token cookie visible to JS. WS auth will fail with 401.');
+        logLine('2;37', '  Fix: clear cookies in DevTools → Application → Cookies, then log out + log in.');
+      }
+
       let url: string;
       try {
         url = wsUrl(`/ws/docker/logs/${encodeURIComponent(containerId)}?tail=200`);
       } catch (err) {
-        terminal.writeln(`\r\n\x1b[1;31m* Failed to build URL: ${(err as Error).message}\x1b[0m`);
+        logLine('1;31', `Failed to build URL: ${(err as Error).message}`);
         return;
       }
-      terminal.writeln(`\x1b[2;37m* URL: ${url}\x1b[0m`);
+      logLine('2;37', `URL: ${url}`);
+      logLine('2;37', `page origin: ${window.location.origin}`);
 
+      preflight(url);
+
+      let constructed: WebSocket;
       try {
-        ws = new WebSocket(url);
+        constructed = new WebSocket(url);
       } catch (err) {
-        terminal.writeln(`\r\n\x1b[1;31m* WebSocket constructor failed: ${(err as Error).message}\x1b[0m`);
+        logLine('1;31', `WebSocket constructor failed: ${(err as Error).message}`);
         return;
       }
+      ws = constructed;
       ws.binaryType = 'arraybuffer';
+      logLine('2;37', `readyState=${ws.readyState} (CONNECTING=0)`);
 
-      const watchdog = setTimeout(() => {
-        if (disposed || !ws) return;
-        if (ws.readyState === WebSocket.CONNECTING) {
-          terminal.writeln('\r\n\x1b[1;31m* Still CONNECTING after 8s. Likely the backend is unreachable, blocked by firewall, or auth was rejected.\x1b[0m');
-          terminal.writeln('\x1b[2;37m  Hint: in dev the WS goes to <host>:8080 directly. Make sure the Go server is reachable on that port and you have logged in again since the cookie was made non-HttpOnly.\x1b[0m');
-        }
-      }, 8000);
+      const ticks = [2000, 5000, 10000, 20000];
+      const tickHandles: ReturnType<typeof setTimeout>[] = [];
+      for (const ms of ticks) {
+        tickHandles.push(setTimeout(() => {
+          if (disposed || !ws) return;
+          if (ws.readyState === WebSocket.CONNECTING) {
+            logLine('1;33', `Still CONNECTING after ${ms / 1000}s (readyState=${ws.readyState}). No onopen / onerror / onclose fired yet.`);
+          }
+        }, ms));
+      }
+      function clearTicks() { tickHandles.forEach(clearTimeout); }
 
       ws.onopen = () => {
-        clearTimeout(watchdog);
+        clearTicks();
         if (disposed) return;
-        terminal.writeln('\x1b[1;32m* Connected. Streaming logs...\x1b[0m\r\n');
+        logLine('1;32', 'Connected. Streaming logs...');
+        terminal.writeln('');
       };
 
       ws.onmessage = async (ev) => {
@@ -93,19 +135,23 @@ export default function DockerLogsTerminal({
       };
 
       ws.onerror = (ev) => {
-        clearTimeout(watchdog);
+        clearTicks();
         if (disposed) return;
-        // Browsers don't expose the underlying error, but logging the event
-        // type at least confirms we got here and the URL was attempted.
         console.error('docker logs ws error', ev);
-        terminal.writeln('\r\n\x1b[1;31m* Connection error (see browser console).\x1b[0m');
+        logLine('1;31', 'Connection error (browser blocked or refused; see DevTools console / Network → WS).');
       };
 
       ws.onclose = (ev) => {
-        clearTimeout(watchdog);
+        clearTicks();
         if (disposed) return;
         const reason = ev.reason ? ` reason="${ev.reason}"` : '';
-        terminal.writeln(`\r\n\x1b[1;33m* Log stream closed (code=${ev.code} clean=${ev.wasClean}${reason}). Reconnecting in 1.5s...\x1b[0m`);
+        logLine('1;33', `Closed (code=${ev.code} clean=${ev.wasClean}${reason}).`);
+        if (ev.code === 1006) {
+          logLine('2;37', '  code 1006 = abnormal closure: backend not reachable, refused, or terminated handshake.');
+        } else if (ev.code === 1008 || ev.code === 4401) {
+          logLine('2;37', '  policy/auth violation: token missing or invalid.');
+        }
+        logLine('2;37', 'Reconnecting in 1.5s...');
         scheduleReconnect();
       };
     }
@@ -173,8 +219,17 @@ export default function DockerLogsTerminal({
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close();
+      if (ws) {
+        // Detach handlers so a queued open/close on a torn-down instance
+        // can't write to a disposed terminal.
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
+        ws = null;
       }
       if (terminal) {
         terminal.dispose();
