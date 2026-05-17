@@ -1,3 +1,11 @@
+# Mode selects the role of this instance.
+#   "hub"   (default) — full dashboard: UI + servers registry + aggregator
+#                       + local collectors. Log in here to see your fleet.
+#   "agent"           — headless: only local collectors + the read-only API
+#                       the hub calls. No UI, no registry, no aggregator.
+#                       Use this on the machines you only want to monitor.
+mode: "hub"
+
 server:
   bind: "0.0.0.0:8080"
   tls:

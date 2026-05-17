@@ -29,7 +29,7 @@ Run the same binary on every machine you want to monitor. Designate one instance
 - **Log tailing** — follow files on a configured allowlist.
 - **PM2 / Node.js** — list, start, stop, restart, and delete PM2 apps.
 - **Templates** — one-click Docker Compose stacks (Supabase, Qdrant) with auto-generated secrets and port probing. Multiple isolated deployments per template per host.
-- **Multi-server** — one hub aggregates many agents over HTTPS. Each agent is monitored locally and exposed via API key.
+- **Multi-server** — one hub aggregates many agents over HTTPS. Agents run the same binary in `mode: agent` — no UI, no aggregator, just local collectors and the read-only API the hub calls.
 - **Single static binary** — UI is embedded; no separate web server needed.
 - **JWT login** — first-run setup token; password change in the UI.
 
@@ -61,8 +61,10 @@ Run the same binary on every machine you want to monitor. Designate one instance
 
 Key points:
 
-- **Same binary, both roles.** Any instance can be a hub, an agent, or both. The hub's "self" entry shortcuts the network and reads directly from its own local collectors.
-- **Pull-based.** The hub opens a long-lived WebSocket to each agent's `/ws/metrics`. No need to open inbound ports on the hub.
+- **Same binary, two roles.** Pick a role per host with `mode:` in `config.yaml`:
+  - `mode: hub` (default) — runs the full dashboard: UI + servers registry + aggregator + local collectors. **You only need ONE of these.**
+  - `mode: agent` — headless: only local collectors + the read-only API the hub calls. No UI, no registry, no aggregator. Use this on every machine you only want to monitor — it's the lightweight footprint.
+- **Pull-based.** The hub opens a long-lived WebSocket to each agent's `/ws/metrics`. Agents don't need to reach the hub.
 - **Per-server API keys.** Each agent issues API keys (revocable, secrets shown once). The hub stores them encrypted with AES-GCM derived from its JWT secret.
 - **Static UI.** The Next.js app is exported to plain HTML/JS and embedded into the Go binary via `go:embed`.
 
@@ -203,22 +205,43 @@ You can monitor many hosts from one dashboard. Pick one machine as the **hub** (
 
 ### Step 1 — install the binary everywhere
 
-On every machine you want to monitor, follow [Production: single server](#production-single-server). Set `data_dir` to a per-host writable path (the systemd installer defaults to `/var/lib/server-monitor`).
+Follow [Production: single server](#production-single-server) on every machine. Set `data_dir` to a per-host writable path (the systemd installer defaults to `/var/lib/server-monitor`).
 
-After this, each host has its own UI on port 8080 and its own admin user. **You only need to log into the hub** — agents authenticate the hub via API keys, not user passwords.
+Then **set the mode in each `config.yaml`**:
 
-### Step 2 — generate API keys on each agent
+- **Hub host** (the one you'll log into) — `mode: hub` or omit. This is the full dashboard.
+- **All other monitored hosts** — `mode: agent`. This is the lightweight role: no UI, no aggregator goroutine, no servers registry. Restart `server-monitor` after the change.
 
-On each agent's web UI:
+> Only one hub is needed. Running additional hubs wastes resources and is only useful if you want multiple dashboards over the same fleet.
 
-1. Log in.
-2. Open **Settings**.
-3. Scroll to **API keys** → **Generate key**. Give it a descriptive name (e.g. `"hub at 10.0.0.5"`).
-4. Copy the secret immediately — it's shown once. It looks like `sm_xxxxxxxxx...`.
+After this, the hub serves the dashboard on port 8080. Each agent serves only `/api/v1/*` and `/ws/*` on its port — opening it in a browser returns a plain JSON response, not a UI.
 
-You can revoke keys at any time from the same page; revocation takes effect immediately.
+### Step 2 — generate an API key on each agent
 
-> Tip: each agent can have multiple keys, e.g. one per hub. Revoke a single key without affecting the others.
+You still need a key per agent so the hub can authenticate. Two ways:
+
+**A. From a one-time hub login on the agent.** Promote the agent to `mode: hub` temporarily, log in, generate the key under **Settings → API keys**, copy it, then switch back to `mode: agent` and restart. Slightly fiddly but works without curl.
+
+**B. With curl on the agent host (recommended for `mode: agent`).** The `/api/v1/api-keys` endpoint requires a JWT — but the very first time, you can still log in using the admin user you set up during single-server install.
+
+```bash
+# 1. Log in and capture the JWT cookie
+curl -c /tmp/sm.jar -H 'Content-Type: application/json' \
+     -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
+     https://<agent-host>:8080/api/v1/auth/login
+
+# 2. Generate an API key
+curl -b /tmp/sm.jar -H 'Content-Type: application/json' \
+     -d '{"name":"hub at 10.0.0.5"}' \
+     https://<agent-host>:8080/api/v1/api-keys
+
+# Response contains {"id":"ak_xxx", "secret":"sm_xxxxxxxx", ...}
+# Copy the secret — it's shown only once.
+```
+
+You can revoke keys later: `DELETE /api/v1/api-keys/<id>` (also through the hub UI temporarily, see "A" above). Revocation is immediate.
+
+> Tip: an agent can hold multiple keys (one per hub). Revoking one doesn't affect the others.
 
 ### Step 3 — add agents to the hub
 
@@ -266,6 +289,8 @@ The hub also runs all local collectors and appears as `is_self=true` in its own 
 Edit `config.yaml` (or `/etc/server-monitor/config.yaml` for the systemd install).
 
 ```yaml
+mode: "hub"                    # "hub" (full dashboard) or "agent" (headless, for monitored hosts)
+
 server:
   bind: "0.0.0.0:8080"         # listen address
   tls:
