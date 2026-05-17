@@ -16,6 +16,7 @@ import (
 	"github.com/ANASDAVOODTK/server-monitor/internal/aggregator"
 	"github.com/ANASDAVOODTK/server-monitor/internal/api"
 	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
+	"github.com/ANASDAVOODTK/server-monitor/internal/bindfix"
 	"github.com/ANASDAVOODTK/server-monitor/internal/config"
 	"github.com/ANASDAVOODTK/server-monitor/internal/hub"
 	"github.com/ANASDAVOODTK/server-monitor/internal/servers"
@@ -42,6 +43,11 @@ func main() {
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+	if cfg.IsAgent() {
+		// Same logic as the dedicated agent binary — a hub-binary running in
+		// agent mode must be reachable from the real hub.
+		bindfix.NormalizeAgentBind(cfg)
 	}
 
 	st, err := store.Open(cfg.DataDir)

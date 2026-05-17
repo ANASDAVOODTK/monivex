@@ -317,8 +317,8 @@ The hub opens a WebSocket to the agent and the new card appears with live CPU/me
 The URL is detected automatically from the agent's `bind` setting:
 
 - `bind: "0.0.0.0:8080"` → the agent picks its primary outbound LAN IP (recommended for multi-host setups).
-- `bind: "127.0.0.1:8080"` → the agent uses `127.0.0.1` (only works if the hub is on the same machine).
 - `bind: "<hostname>:8080"` → uses that hostname.
+- `bind: "127.0.0.1:8080"` or `localhost:…` → **auto-upgraded** to `0.0.0.0:<port>` with a notice in the log. Agents have to be reachable from the hub, and binding to loopback is almost always leftover dev config. Pin a real non-loopback host in the bind value to silence the notice.
 
 > If you missed the line (lost the log, journal rotated, etc.) just run
 > `server-monitor-agent pair http://<agent-host>:8080` on the agent to mint a fresh one. The old key keeps working unless you revoke it.

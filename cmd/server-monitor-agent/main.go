@@ -61,6 +61,9 @@ func main() {
 	}
 	// Force agent role regardless of config — this binary cannot be a hub.
 	cfg.Mode = "agent"
+	// Agents must be reachable from the hub host; a loopback bind almost
+	// always indicates leftover dev config. Upgrade to 0.0.0.0.
+	normalizeAgentBind(cfg)
 
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
