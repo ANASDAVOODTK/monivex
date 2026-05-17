@@ -1,9 +1,13 @@
 # Mode selects the role of this instance.
 #   "hub"   (default) — full dashboard: UI + servers registry + aggregator
-#                       + local collectors. Log in here to see your fleet.
-#   "agent"           — headless: only local collectors + the read-only API
-#                       the hub calls. No UI, no registry, no aggregator.
+#                       + local collectors + templates. Log in here to see
+#                       and control your fleet.
+#   "agent"           — headless: collectors + the API the hub calls
+#                       (docker controls + exec, template deploys, log
+#                       tailing, PM2, …). NO UI, NO registry, NO aggregator.
 #                       Use this on the machines you only want to monitor.
+#                       For the smallest footprint, build the dedicated
+#                       `server-monitor-agent` binary instead.
 mode: "hub"
 
 server:

@@ -61,15 +61,19 @@ export const api = {
 
   // ---- Server registry (hub-level) ----
   serversList: () => request<ServerSummary[]>('/servers'),
-  serverCreate: (body: { name: string; base_url: string; api_key: string }) =>
-    request<ServerSummary>('/servers', { method: 'POST', body: JSON.stringify(body) }),
+  serverCreate: (body: {
+    name?: string;
+    base_url?: string;
+    api_key?: string;
+    pairing?: string;
+  }) => request<ServerSummary>('/servers', { method: 'POST', body: JSON.stringify(body) }),
   serverUpdate: (
     id: string,
     body: { name?: string; base_url?: string; api_key?: string; enabled?: boolean },
   ) => request<ServerSummary>(`/servers/${enc(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   serverDelete: (id: string) =>
     request<{ ok: boolean }>(`/servers/${enc(id)}`, { method: 'DELETE' }),
-  serverTest: (body: { base_url: string; api_key: string }) =>
+  serverTest: (body: { base_url?: string; api_key?: string; pairing?: string }) =>
     request<{ ok: boolean; host: { hostname: string; kernel_version: string; uptime: number } }>(
       '/servers/test',
       { method: 'POST', body: JSON.stringify(body) },

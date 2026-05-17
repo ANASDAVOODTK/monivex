@@ -1,6 +1,7 @@
-.PHONY: all web build backend run dev clean tidy
+.PHONY: all web build backend agent run dev clean tidy
 
 BIN := bin/server-monitor
+AGENT_BIN := bin/server-monitor-agent
 
 all: build
 
@@ -14,10 +15,16 @@ build: web
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/server-monitor
 
-# Backend-only build (use when running `npm run dev` separately)
+# Backend-only build of the hub (use when running `npm run dev` separately).
 backend:
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -o $(BIN) ./cmd/server-monitor
+
+# Slim, headless agent binary. No embedded UI, no templates, no aggregator,
+# no servers registry. Install this on the hosts you only want monitored.
+agent:
+	mkdir -p bin
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(AGENT_BIN) ./cmd/server-monitor-agent
 
 run: build
 	./$(BIN) --config ./config.yaml
@@ -35,3 +42,4 @@ clean:
 	rm -rf cmd/server-monitor/web-out
 	mkdir -p cmd/server-monitor/web-out
 	echo "# placeholder" > cmd/server-monitor/web-out/.gitkeep
+	rm -f $(AGENT_BIN)

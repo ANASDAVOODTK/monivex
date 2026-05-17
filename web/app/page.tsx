@@ -369,18 +369,33 @@ function AddServerDialog({
   onClose: () => void;
   onAdded: () => void | Promise<void>;
 }) {
+  const [pairing, setPairing] = useState('');
   const [name, setName] = useState('');
+  const [advanced, setAdvanced] = useState(false);
   const [baseURL, setBaseURL] = useState('https://');
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [tested, setTested] = useState<{ hostname: string } | null>(null);
 
+  const usingPairing = pairing.trim().startsWith('sm://');
+
+  const payload = () => {
+    if (usingPairing) {
+      return { name: name.trim() || undefined, pairing: pairing.trim() };
+    }
+    return {
+      name: name.trim() || tested?.hostname || '',
+      base_url: baseURL.trim(),
+      api_key: apiKey.trim(),
+    };
+  };
+
   const test = async () => {
     setErr(null);
     setBusy(true);
     try {
-      const r = await api.serverTest({ base_url: baseURL, api_key: apiKey });
+      const r = await api.serverTest(payload());
       setTested(r.host);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Test failed');
@@ -395,11 +410,7 @@ function AddServerDialog({
     setErr(null);
     setBusy(true);
     try {
-      await api.serverCreate({
-        name: name.trim() || tested?.hostname || '',
-        base_url: baseURL.trim(),
-        api_key: apiKey.trim(),
-      });
+      await api.serverCreate(payload());
       await onAdded();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to add');
@@ -408,72 +419,108 @@ function AddServerDialog({
     }
   };
 
+  const canSubmit = usingPairing || (baseURL.trim().length > 0 && apiKey.trim().length > 0);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 backdrop-blur-sm p-4">
-      <form onSubmit={submit} className="glass-panel w-full max-w-md space-y-4 p-6">
+      <form onSubmit={submit} className="glass-panel w-full max-w-lg space-y-4 p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Add server</h2>
           <button type="button" onClick={onClose} className="btn-ghost">
             Close
           </button>
         </div>
-        <div className="space-y-3 text-sm">
-          <label className="block">
-            <div className="mb-1 text-xs text-fg-muted">Name</div>
-            <input
-              className="input w-full"
-              placeholder="prod-web-1"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <label className="block">
-            <div className="mb-1 text-xs text-fg-muted">Base URL</div>
-            <input
-              className="input w-full font-mono text-xs"
-              placeholder="https://10.0.0.5:8080"
-              value={baseURL}
-              onChange={(e) => setBaseURL(e.target.value)}
-              required
-            />
-          </label>
-          <label className="block">
-            <div className="mb-1 text-xs text-fg-muted">API key</div>
-            <input
-              type="password"
-              autoComplete="off"
-              className="input w-full font-mono text-xs"
-              placeholder="sm_..."
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              required
-            />
-            <div className="mt-1 text-[11px] text-fg-subtle">
-              Generate this on the remote agent under Settings → API keys.
-            </div>
-          </label>
-          {tested && (
-            <div className="rounded border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-200">
-              Connection OK. Reachable host: <span className="font-mono">{tested.hostname}</span>
-            </div>
-          )}
-          {err && (
-            <div className="rounded border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
-              {err}
-            </div>
-          )}
+
+        <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3 text-xs text-fg-muted">
+          On the agent host, run:
+          <pre className="mt-2 overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-fg">
+{`server-monitor-agent pair https://<agent-host>:8080`}
+          </pre>
+          Paste the <code className="rounded bg-black/40 px-1 font-mono">sm://...</code> it
+          prints into the box below.
         </div>
+
+        <label className="block text-sm">
+          <div className="mb-1 text-xs text-fg-muted">Pairing string</div>
+          <textarea
+            className="input w-full font-mono text-xs"
+            rows={3}
+            placeholder="sm://eyJ2IjoxLCJ1cmwiOiJodHRwczovLy4uLiIsImtleSI6InNtX..."
+            value={pairing}
+            onChange={(e) => {
+              setPairing(e.target.value);
+              setTested(null);
+            }}
+            disabled={advanced && !usingPairing}
+          />
+        </label>
+
+        <label className="block text-sm">
+          <div className="mb-1 text-xs text-fg-muted">Name (optional)</div>
+          <input
+            className="input w-full"
+            placeholder={usingPairing ? 'auto-detected from agent hostname' : 'prod-web-1'}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+
+        <details
+          open={advanced}
+          onToggle={(e) => setAdvanced((e.currentTarget as HTMLDetailsElement).open)}
+          className="text-sm"
+        >
+          <summary className="cursor-pointer select-none text-xs text-fg-muted hover:text-fg">
+            Advanced — enter URL and API key manually
+          </summary>
+          <div className="mt-3 space-y-3">
+            <label className="block">
+              <div className="mb-1 text-xs text-fg-muted">Base URL</div>
+              <input
+                className="input w-full font-mono text-xs"
+                placeholder="https://10.0.0.5:8080"
+                value={baseURL}
+                onChange={(e) => setBaseURL(e.target.value)}
+                disabled={usingPairing}
+              />
+            </label>
+            <label className="block">
+              <div className="mb-1 text-xs text-fg-muted">API key</div>
+              <input
+                type="password"
+                autoComplete="off"
+                className="input w-full font-mono text-xs"
+                placeholder="sm_..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                disabled={usingPairing}
+              />
+            </label>
+          </div>
+        </details>
+
+        {tested && (
+          <div className="rounded border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-200">
+            Connection OK. Reachable host: <span className="font-mono">{tested.hostname}</span>
+          </div>
+        )}
+        {err && (
+          <div className="rounded border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
+            {err}
+          </div>
+        )}
+
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={test}
-            disabled={busy || !baseURL || !apiKey}
+            disabled={busy || !canSubmit}
             className="btn-secondary"
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Boxes className="size-4" />}
             Test
           </button>
-          <button type="submit" disabled={busy || !baseURL || !apiKey} className="btn-primary">
+          <button type="submit" disabled={busy || !canSubmit} className="btn-primary">
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
             Save
           </button>

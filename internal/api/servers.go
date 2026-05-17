@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ANASDAVOODTK/server-monitor/internal/metrics"
+	"github.com/ANASDAVOODTK/server-monitor/internal/pairing"
 	"github.com/ANASDAVOODTK/server-monitor/internal/store"
 	"github.com/ANASDAVOODTK/server-monitor/internal/ws"
 )
@@ -78,10 +80,25 @@ func (s *Server) handleServerCreate(w http.ResponseWriter, r *http.Request) {
 		Name    string `json:"name"`
 		BaseURL string `json:"base_url"`
 		APIKey  string `json:"api_key"`
+		Pairing string `json:"pairing"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
+	}
+	// A "sm://..." pairing string takes precedence — it carries url + key
+	// in one field so the UI only needs a single textbox.
+	if strings.HasPrefix(strings.TrimSpace(body.Pairing), pairing.Prefix) {
+		d, err := pairing.Decode(body.Pairing)
+		if err != nil {
+			writeErr(w, 400, "bad pairing token: "+err.Error())
+			return
+		}
+		body.BaseURL = d.URL
+		body.APIKey = d.Key
+		if body.Name == "" {
+			body.Name = d.Note
+		}
 	}
 	sv, err := s.registry.Create(r.Context(), body.Name, body.BaseURL, body.APIKey)
 	if err != nil {
@@ -133,10 +150,20 @@ func (s *Server) handleServerTest(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		BaseURL string `json:"base_url"`
 		APIKey  string `json:"api_key"`
+		Pairing string `json:"pairing"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
+	}
+	if strings.HasPrefix(strings.TrimSpace(body.Pairing), pairing.Prefix) {
+		d, err := pairing.Decode(body.Pairing)
+		if err != nil {
+			writeErr(w, 400, "bad pairing token: "+err.Error())
+			return
+		}
+		body.BaseURL = d.URL
+		body.APIKey = d.Key
 	}
 	host, err := s.registry.TestConnection(r.Context(), body.BaseURL, body.APIKey)
 	if err != nil {

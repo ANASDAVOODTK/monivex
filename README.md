@@ -61,10 +61,12 @@ Run the same binary on every machine you want to monitor. Designate one instance
 
 Key points:
 
-- **Same binary, two roles.** Pick a role per host with `mode:` in `config.yaml`:
-  - `mode: hub` (default) — runs the full dashboard: UI + servers registry + aggregator + local collectors. **You only need ONE of these.**
-  - `mode: agent` — headless: only local collectors + the read-only API the hub calls. No UI, no registry, no aggregator. Use this on every machine you only want to monitor — it's the lightweight footprint.
+- **Two binaries, same packages.** Build whichever fits each host:
+  - `server-monitor` — the **hub**: UI + servers registry + aggregator + templates + collectors. **You only need ONE of these** on the network.
+  - `server-monitor-agent` — the **agent**: same functionality as the hub minus the UI, the servers registry, and the aggregator. It still has docker exec, container start/stop, log tailing, PM2 controls, template deploys — all the things the hub proxies to it. Install this on every machine you only want to monitor.
+  - Don't want to build two binaries? Run `server-monitor` everywhere and set `mode: "agent"` in each agent's `config.yaml` — same runtime behavior, just a larger binary.
 - **Pull-based.** The hub opens a long-lived WebSocket to each agent's `/ws/metrics`. Agents don't need to reach the hub.
+- **One-line pairing.** Run `server-monitor-agent pair <url>` on the agent, paste the resulting `sm://...` token into the hub's **Add server** form — that's it. The token wraps URL + API key in one string.
 - **Per-server API keys.** Each agent issues API keys (revocable, secrets shown once). The hub stores them encrypted with AES-GCM derived from its JWT secret.
 - **Static UI.** The Next.js app is exported to plain HTML/JS and embedded into the Go binary via `go:embed`.
 
@@ -116,13 +118,66 @@ make build
 
 This runs `npm run build` to produce a static export under `web/out/`, copies it into `cmd/server-monitor/web-out/`, and compiles a single Go binary that serves the UI itself on port 8080.
 
+### 4. Multi-server in development (hub + local agent)
+
+To exercise the hub/agent flow on your laptop, run two instances on different ports and pair them. No remote machines needed.
+
+**A. Start the hub** (frontend + backend, normal dev flow):
+
+```bash
+# Terminal A — Next.js on :3000 (proxies /api and /ws to :8080)
+cd web && npm run dev
+
+# Terminal B — hub backend on :8080
+go run ./cmd/server-monitor --config ./config.example.yaml
+```
+
+Complete the first-run setup at <http://localhost:3000/setup>. The hub's server list now shows one card (itself).
+
+**C. Start a second instance as the agent** on port :8090, with its own data dir:
+
+```bash
+# Terminal C
+mkdir -p ./data-agent
+cat > ./config.agent.yaml <<EOF
+mode: agent
+server:
+  bind: "127.0.0.1:8090"
+data_dir: "./data-agent"
+logs:
+  allowed_paths: []
+docker:
+  enabled: true
+EOF
+
+go run ./cmd/server-monitor-agent --config ./config.agent.yaml
+# (or with the full binary: go run ./cmd/server-monitor --config ./config.agent.yaml)
+```
+
+The agent will print a one-time setup token to the terminal on first boot — you don't need it for pairing, but you can use it via `curl` later if you want to administer the agent directly.
+
+**D. Pair the agent**:
+
+```bash
+# Terminal D (one-shot)
+go run ./cmd/server-monitor-agent pair http://127.0.0.1:8090 --config ./config.agent.yaml
+# prints  sm://...
+```
+
+**E. Add it on the hub UI**: open <http://localhost:3000>, click **Add server**, paste the `sm://...` token, click **Save**. The hub starts streaming the agent's snapshot within ~1s. Clicking the card opens the per-server dashboard for it.
+
+To tear it all down: stop terminals C and D, `rm -rf data-agent`. The hub will surface the agent as "disconnected" within ~5s — remove it from the list or leave it for next time.
+
+> Tip: the agent's `mode: agent` config also works with the full hub binary, so during development you can use `go run ./cmd/server-monitor` for both instances and just point them at different config files.
+
 ### Make targets
 
 | Target          | What it does                                                                 |
 | --------------- | ---------------------------------------------------------------------------- |
 | `make web`      | Build the Next.js static export and copy it under `cmd/server-monitor/`.     |
-| `make backend`  | Build the Go binary using whatever is currently in `web-out/`.               |
-| `make build`    | `web` + `backend` — produces `bin/server-monitor`.                           |
+| `make backend`  | Build the **hub** Go binary using whatever is currently in `web-out/`.       |
+| `make build`    | `web` + `backend` — produces `bin/server-monitor` (the hub).                 |
+| `make agent`    | Build the headless **agent** binary `bin/server-monitor-agent` (everything the hub does minus the UI / registry / aggregator). |
 | `make run`      | `build` and run with `./config.yaml`.                                        |
 | `make tidy`     | `go mod tidy`.                                                               |
 | `make clean`    | Remove `bin/`, `web/.next`, `web/out`, and `cmd/server-monitor/web-out/`.    |
@@ -203,60 +258,87 @@ sudo ./deploy/uninstall.sh
 
 You can monitor many hosts from one dashboard. Pick one machine as the **hub** (the one you'll log into). All other monitored machines run the same binary as **agents**.
 
-### Step 1 — install the binary everywhere
+### Step 1 — pick a binary per role
 
-Follow [Production: single server](#production-single-server) on every machine. Set `data_dir` to a per-host writable path (the systemd installer defaults to `/var/lib/server-monitor`).
+The repo builds two binaries from the same packages. Use whichever fits each host:
 
-Then **set the mode in each `config.yaml`**:
+| Binary                   | Built with        | Role | Includes        |
+| ------------------------ | ----------------- | ---- | --------------- |
+| `server-monitor`         | `make build`      | Hub  | UI + servers registry + aggregator + templates + collectors |
+| `server-monitor-agent`   | `make agent`      | Agent (recommended for monitored hosts) | **Everything the hub has, minus the UI / registry / aggregator.** Still supports docker controls + exec, log tailing, PM2, template deploys — all the things the hub proxies to an agent. |
 
-- **Hub host** (the one you'll log into) — `mode: hub` or omit. This is the full dashboard.
-- **All other monitored hosts** — `mode: agent`. This is the lightweight role: no UI, no aggregator goroutine, no servers registry. Restart `server-monitor` after the change.
+Install one **hub** somewhere (your dashboard host), then install the **agent** on every machine you want to monitor:
 
-> Only one hub is needed. Running additional hubs wastes resources and is only useful if you want multiple dashboards over the same fleet.
+```bash
+# On the hub host
+make build
+sudo ./deploy/install.sh                       # systemd, full dashboard on :8080
+
+# On every other host you want monitored
+make agent
+sudo install -m 0755 bin/server-monitor-agent /usr/local/bin/
+sudo install -m 0644 config.example.yaml /etc/server-monitor.yaml
+# Optional: write a systemd unit pointing at the agent binary
+sudo /usr/local/bin/server-monitor-agent --config /etc/server-monitor.yaml
+```
+
+> Don't have time to build the slim binary? **Alternative:** install the full `server-monitor` on every host and set `mode: "agent"` in each agent's `config.yaml`. Same runtime behavior — just a larger binary. Restart `server-monitor` after the change.
 
 After this, the hub serves the dashboard on port 8080. Each agent serves only `/api/v1/*` and `/ws/*` on its port — opening it in a browser returns a plain JSON response, not a UI.
 
-### Step 2 — generate an API key on each agent
+### Step 2 — pair each agent to the hub
 
-You still need a key per agent so the hub can authenticate. Two ways:
-
-**A. From a one-time hub login on the agent.** Promote the agent to `mode: hub` temporarily, log in, generate the key under **Settings → API keys**, copy it, then switch back to `mode: agent` and restart. Slightly fiddly but works without curl.
-
-**B. With curl on the agent host (recommended for `mode: agent`).** The `/api/v1/api-keys` endpoint requires a JWT — but the very first time, you can still log in using the admin user you set up during single-server install.
+There's a single command that generates a key on the agent and emits a one-line pairing token. Run it on the agent host:
 
 ```bash
-# 1. Log in and capture the JWT cookie
+# Slim agent binary
+sudo server-monitor-agent pair https://10.0.0.5:8080
+# OR with the full binary running as an agent
+sudo server-monitor pair https://10.0.0.5:8080
+```
+
+It prints something like:
+
+```
+Created API key: pair-prod-web-1-20260517-150405
+Agent URL:       https://10.0.0.5:8080
+
+Paste this into the hub's 'Add server' form:
+
+sm://eyJ2IjoxLCJ1cmwiOiJodHRwczovLzEwLjAuMC41OjgwODAiLCJrZXkiOiJzbV9hYmMxMjMifQ
+```
+
+Now on the hub's web UI:
+
+1. Visit `/`.
+2. Click **Add server**.
+3. Paste the `sm://...` token into the **Pairing string** box.
+4. (Optional) override the name.
+5. Click **Test** to confirm, then **Save**.
+
+The hub immediately opens a WebSocket to the agent. The new card appears with live CPU/memory/uptime. Click it for the full dashboard.
+
+> The pairing token contains the API key in clear, so treat it like a password until the hub has consumed it.
+> Need to rotate? Just run `pair` again. Old keys stay valid; revoke them under **Settings → API keys** on the hub (or via the agent's `DELETE /api/v1/api-keys/{id}`).
+
+#### Doing it without the `pair` command
+
+If you can't shell into the agent and only have the running daemon, the `pair` command's two steps — creating an API key and forming the URL — are still available manually:
+
+```bash
+# Log in once to get a JWT cookie
 curl -c /tmp/sm.jar -H 'Content-Type: application/json' \
      -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
      https://<agent-host>:8080/api/v1/auth/login
 
-# 2. Generate an API key
+# Mint a key
 curl -b /tmp/sm.jar -H 'Content-Type: application/json' \
-     -d '{"name":"hub at 10.0.0.5"}' \
+     -d '{"name":"hub-A"}' \
      https://<agent-host>:8080/api/v1/api-keys
-
-# Response contains {"id":"ak_xxx", "secret":"sm_xxxxxxxx", ...}
-# Copy the secret — it's shown only once.
+# → {"id":"ak_xxx","secret":"sm_xxxxxxxx",...}
 ```
 
-You can revoke keys later: `DELETE /api/v1/api-keys/<id>` (also through the hub UI temporarily, see "A" above). Revocation is immediate.
-
-> Tip: an agent can hold multiple keys (one per hub). Revoking one doesn't affect the others.
-
-### Step 3 — add agents to the hub
-
-On the hub's web UI:
-
-1. Visit `/` (the server list — it shows only the hub as "this" by default).
-2. Click **Add server**.
-3. Fill:
-   - **Name** — display label (`prod-web-1`)
-   - **Base URL** — full URL of the agent (`https://10.0.0.5:8443` or `http://10.0.0.5:8080`)
-   - **API key** — the secret you copied in step 2
-4. Click **Test** to verify the hub can reach the agent and authenticate. The agent's hostname should appear.
-5. Click **Save**.
-
-The hub immediately opens a WebSocket to the agent and starts streaming metrics. The new card appears on the list with live CPU/memory/uptime. Click it to drill into the full dashboard for that server.
+Then on the hub's Add Server form, expand **Advanced**, paste the URL and the `secret` separately.
 
 ### How proxying works
 
@@ -419,7 +501,8 @@ proxy_read_timeout 600s;
 ## Repository layout
 
 ```
-cmd/server-monitor/        main.go (boot), embed.go (UI embed), web-out/ (static export)
+cmd/server-monitor/        hub main.go (boot), embed.go (UI embed), web-out/ (static export)
+cmd/server-monitor-agent/  slim agent main.go — no UI, no templates, no aggregator
 internal/
   aggregator/              long-lived WS clients to remote agents
   api/                     HTTP router + per-server handlers + proxy helper
