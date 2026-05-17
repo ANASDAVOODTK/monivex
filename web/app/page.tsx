@@ -255,18 +255,21 @@ function ServerCard({
         ? 'disconnected'
         : 'connecting';
 
+  const detailHref = `/servers/${encodeURIComponent(server.id)}`;
+
   return (
-    <div className="card card-pad relative overflow-hidden">
-      <Link
-        href={`/servers/${encodeURIComponent(server.id)}`}
-        className="absolute inset-0"
-        aria-label={`Open ${server.name}`}
-      />
-      <div className="relative flex items-start justify-between gap-3">
+    <Link
+      href={detailHref}
+      className="card card-pad group block cursor-pointer transition-colors hover:border-accent/50 hover:bg-white/[0.035] hover:shadow-glow focus:outline-none focus:ring-2 focus:ring-accent/60"
+      aria-label={`Open dashboard for ${server.name}`}
+    >
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Server className="size-4 text-accent" />
-            <h3 className="truncate text-sm font-semibold text-fg">{server.name}</h3>
+            <h3 className="truncate text-sm font-semibold text-fg group-hover:text-accent">
+              {server.name}
+            </h3>
             {server.is_self && (
               <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent">
                 this
@@ -283,13 +286,13 @@ function ServerCard({
         </div>
       </div>
 
-      <div className="relative mt-4 grid grid-cols-3 gap-2 text-xs">
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
         <Stat icon={<Cpu className="size-3.5" />} label="CPU" value={server.cpu_percent !== undefined ? `${server.cpu_percent.toFixed(0)}%` : '-'} />
         <Stat icon={<MemoryStick className="size-3.5" />} label="MEM" value={server.mem_percent !== undefined ? `${server.mem_percent.toFixed(0)}%` : '-'} />
         <Stat icon={<HardDrive className="size-3.5" />} label="DISK" value={server.disk_percent !== undefined ? `${server.disk_percent.toFixed(0)}%` : '-'} />
       </div>
 
-      <div className="relative mt-4 flex items-center justify-between text-[11px] text-fg-muted">
+      <div className="mt-4 flex items-center justify-between text-[11px] text-fg-muted">
         <div>
           <span className="text-fg-subtle">host</span>{' '}
           <span className="font-mono">{server.hostname || '-'}</span>
@@ -301,33 +304,36 @@ function ServerCard({
       </div>
 
       {server.last_error && (
-        <div className="relative mt-3 truncate rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200">
+        <div className="mt-3 truncate rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200">
           {server.last_error}
         </div>
       )}
 
-      <div className="relative mt-4 flex items-center justify-between border-t border-white/5 pt-3 text-[10px] text-fg-subtle">
-        <span>last seen {formatLastSeen(server.last_seen)}</span>
+      <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
+        <span className="text-[10px] text-fg-subtle">last seen {formatLastSeen(server.last_seen)}</span>
         <div className="flex items-center gap-2">
           {!server.is_self && (
             <button
               onClick={(e) => {
+                // Stop the parent Link from navigating when "Remove" is clicked.
                 e.preventDefault();
+                e.stopPropagation();
                 onRemove();
               }}
               disabled={removing}
-              className="z-10 inline-flex items-center gap-1 rounded border border-transparent px-2 py-1 text-rose-300 transition-colors hover:border-rose-400/30 hover:bg-rose-400/10 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded border border-transparent px-2 py-1 text-xs text-rose-300 transition-colors hover:border-rose-400/30 hover:bg-rose-400/10 disabled:opacity-50"
             >
               {removing ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
               Remove
             </button>
           )}
-          <span className="inline-flex items-center gap-1 text-accent">
-            Open <ArrowRight className="size-3" />
+          <span className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent transition-colors group-hover:bg-accent/20">
+            Open dashboard
+            <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
           </span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
