@@ -85,28 +85,34 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/node-apps/{pmId}/delete", s.handleNodeAppDelete)
 			r.Get("/history", s.handleHistory)
 			r.Get("/logs/sources", s.handleLogSources)
-			r.Get("/templates", s.handleTemplatesList)
-			r.Get("/templates/{templateId}", s.handleTemplateGet)
-			r.Get("/templates/{templateId}/defaults", s.handleTemplateDefaults)
-			r.Post("/templates/{templateId}/deploy", s.handleTemplateDeploy)
-			r.Get("/templates/deployments", s.handleDeploymentsList)
-			r.Get("/templates/deployments/{id}", s.handleDeploymentGet)
-			r.Get("/templates/deployments/{id}/events", s.handleDeploymentEvents)
-			r.Post("/templates/deployments/{id}/start", s.handleDeploymentStart)
-			r.Post("/templates/deployments/{id}/stop", s.handleDeploymentStop)
-			r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
-			r.Post("/templates/deployments/{id}/edit", s.handleDeploymentEdit)
-			r.Post("/templates/deployments/{id}/delete", s.handleDeploymentDelete)
 
-			// ---- Multi-server: registry + per-server API ----
-			r.Get("/servers", s.handleServersList)
-			r.Post("/servers", s.handleServerCreate)
-			r.Post("/servers/test", s.handleServerTest)
-			r.Put("/servers/{id}", s.handleServerUpdate)
-			r.Delete("/servers/{id}", s.handleServerDelete)
-			r.Route("/servers/{serverId}", func(rr chi.Router) {
-				s.registerServerScopedRoutes(rr)
-			})
+			// ---- Templates (hub mode only) ----
+			if s.templates != nil {
+				r.Get("/templates", s.handleTemplatesList)
+				r.Get("/templates/{templateId}", s.handleTemplateGet)
+				r.Get("/templates/{templateId}/defaults", s.handleTemplateDefaults)
+				r.Post("/templates/{templateId}/deploy", s.handleTemplateDeploy)
+				r.Get("/templates/deployments", s.handleDeploymentsList)
+				r.Get("/templates/deployments/{id}", s.handleDeploymentGet)
+				r.Get("/templates/deployments/{id}/events", s.handleDeploymentEvents)
+				r.Post("/templates/deployments/{id}/start", s.handleDeploymentStart)
+				r.Post("/templates/deployments/{id}/stop", s.handleDeploymentStop)
+				r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
+				r.Post("/templates/deployments/{id}/edit", s.handleDeploymentEdit)
+				r.Post("/templates/deployments/{id}/delete", s.handleDeploymentDelete)
+			}
+
+			// ---- Multi-server: registry + per-server API (hub mode only) ----
+			if s.registry != nil {
+				r.Get("/servers", s.handleServersList)
+				r.Post("/servers", s.handleServerCreate)
+				r.Post("/servers/test", s.handleServerTest)
+				r.Put("/servers/{id}", s.handleServerUpdate)
+				r.Delete("/servers/{id}", s.handleServerDelete)
+				r.Route("/servers/{serverId}", func(rr chi.Router) {
+					s.registerServerScopedRoutes(rr)
+				})
+			}
 
 			// ---- API keys (JWT only — never API-key callable) ----
 			r.Group(func(rr chi.Router) {
@@ -124,11 +130,13 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/ws/docker/exec/{id}", s.ws.HandleDockerExec)
 	r.Get("/ws/docker/logs/{id}", s.ws.HandleDockerLogs)
 
-	// Server-scoped WebSockets — proxy or local based on serverId.
-	r.Get("/ws/servers/{serverId}/metrics", s.handleScopedWSMetrics)
-	r.Get("/ws/servers/{serverId}/logs", s.handleScopedWSLogs)
-	r.Get("/ws/servers/{serverId}/docker/exec/{id}", s.handleScopedWSDockerExec)
-	r.Get("/ws/servers/{serverId}/docker/logs/{id}", s.handleScopedWSDockerLogs)
+	// Server-scoped WebSockets — proxy or local based on serverId (hub mode only).
+	if s.registry != nil {
+		r.Get("/ws/servers/{serverId}/metrics", s.handleScopedWSMetrics)
+		r.Get("/ws/servers/{serverId}/logs", s.handleScopedWSLogs)
+		r.Get("/ws/servers/{serverId}/docker/exec/{id}", s.handleScopedWSDockerExec)
+		r.Get("/ws/servers/{serverId}/docker/logs/{id}", s.handleScopedWSDockerLogs)
+	}
 
 	// Static UI
 	if s.ui != nil {

@@ -54,31 +54,44 @@ func main() {
 	defer h.Close()
 	go h.Run(ctx)
 
-	tplReg := templates.NewRegistry()
-	tplReg.Register(qdranttpl.New())
-	tplReg.Register(supabasetpl.New())
-	tplSvc := templates.NewService(tplReg, st, cfg.DataDir, cfg.Templates.StorageRoot)
-	go runTemplateReconciler(ctx, tplSvc)
+	// Templates + registry + aggregator are hub-only. In agent mode we skip
+	// them entirely so the agent stays small and just exposes its local API
+	// for the hub to call.
+	var (
+		tplSvc   *templates.Service
+		registry *servers.Registry
+		agg      *aggregator.Aggregator
+		ui       fs.FS
+	)
+	if !cfg.IsAgent() {
+		tplReg := templates.NewRegistry()
+		tplReg.Register(qdranttpl.New())
+		tplReg.Register(supabasetpl.New())
+		tplSvc = templates.NewService(tplReg, st, cfg.DataDir, cfg.Templates.StorageRoot)
+		go runTemplateReconciler(ctx, tplSvc)
 
-	registry, err := servers.New(st, authSvc.Secret())
-	if err != nil {
-		log.Fatalf("servers registry: %v", err)
-	}
-	hostname, _ := os.Hostname()
-	if hostname == "" {
-		hostname = "this server"
-	}
-	if _, err := registry.EnsureSelf(ctx, hostname); err != nil {
-		log.Fatalf("ensure self server: %v", err)
+		registry, err = servers.New(st, authSvc.Secret())
+		if err != nil {
+			log.Fatalf("servers registry: %v", err)
+		}
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "this server"
+		}
+		if _, err := registry.EnsureSelf(ctx, hostname); err != nil {
+			log.Fatalf("ensure self server: %v", err)
+		}
+
+		agg = aggregator.New(registry, h)
+		go agg.Run(ctx)
+
+		if uiFromMain != nil {
+			ui = uiFromMain()
+		}
+	} else {
+		log.Printf("running in AGENT mode — UI, templates, and registry are disabled")
 	}
 
-	agg := aggregator.New(registry, h)
-	go agg.Run(ctx)
-
-	var ui fs.FS
-	if uiFromMain != nil {
-		ui = uiFromMain()
-	}
 	srv := api.NewServer(cfg, st, authSvc, h, tplSvc, registry, agg, ui)
 
 	httpServer := &http.Server{

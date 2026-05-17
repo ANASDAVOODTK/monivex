@@ -9,6 +9,12 @@ import (
 )
 
 type Config struct {
+	// Mode selects what the binary does. "" or "hub" runs the full dashboard
+	// (UI + servers registry + aggregator + local collectors). "agent" runs
+	// only the local collectors and the read-only API the hub calls — no UI,
+	// no registry, no aggregator. Agent mode is the lightweight deployment
+	// for monitored hosts that should not run their own dashboard.
+	Mode      string          `yaml:"mode"`
 	Server    ServerConfig    `yaml:"server"`
 	DataDir   string          `yaml:"data_dir"`
 	Metrics   MetricsConfig   `yaml:"metrics"`
@@ -19,6 +25,9 @@ type Config struct {
 	GPU       GPUConfig       `yaml:"gpu"`
 	Templates TemplatesConfig `yaml:"templates"`
 }
+
+// IsAgent reports whether this instance should run in agent-only mode.
+func (c *Config) IsAgent() bool { return c.Mode == "agent" }
 
 type ServerConfig struct {
 	Bind string    `yaml:"bind"`
