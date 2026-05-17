@@ -76,6 +76,10 @@ func main() {
 		log.Fatalf("auth: %v", err)
 	}
 
+	// Agents never log in via UI — skip the first-run user banner. Instead
+	// print a pairing token on first boot (or a hint on subsequent boots).
+	maybePrintBootstrapPairing(ctx, st, authSvc, cfg)
+
 	h := hub.New(cfg, st)
 	defer h.Close()
 	go h.Run(ctx)

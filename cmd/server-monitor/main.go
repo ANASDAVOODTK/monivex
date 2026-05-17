@@ -57,6 +57,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("auth: %v", err)
 	}
+	if !cfg.IsAgent() {
+		// Agents never need a login (no UI), so we don't bother the operator
+		// with the first-run banner there.
+		authSvc.PrintFirstRunBanner()
+	}
 
 	h := hub.New(cfg, st)
 	defer h.Close()

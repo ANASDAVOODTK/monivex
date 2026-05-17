@@ -432,12 +432,11 @@ function AddServerDialog({
         </div>
 
         <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3 text-xs text-fg-muted">
-          On the agent host, run:
+          The agent prints a <code className="rounded bg-black/40 px-1 font-mono">sm://...</code> token
+          on first boot — paste it below. If you missed it, run on the agent host:
           <pre className="mt-2 overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-fg">
-{`server-monitor-agent pair https://<agent-host>:8080`}
+{`server-monitor-agent pair http://<agent-host>:8080`}
           </pre>
-          Paste the <code className="rounded bg-black/40 px-1 font-mono">sm://...</code> it
-          prints into the box below.
         </div>
 
         <label className="block text-sm">
@@ -507,6 +506,19 @@ function AddServerDialog({
         {err && (
           <div className="rounded border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
             {err}
+            {/connection refused|no route to host|timeout|unreachable/i.test(err) && (
+              <div className="mt-2 text-[11px] text-rose-300/80">
+                Tip: the agent must be reachable on the URL in the pairing token. If it's bound
+                to <code className="font-mono">127.0.0.1</code>, change it to{' '}
+                <code className="font-mono">0.0.0.0</code> in the agent's config and restart.
+              </div>
+            )}
+            {/rejected the api key|unauthorized/i.test(err) && (
+              <div className="mt-2 text-[11px] text-rose-300/80">
+                Tip: the API key in this token has been revoked. Generate a new one on the agent
+                with <code className="font-mono">server-monitor-agent pair &lt;url&gt;</code>.
+              </div>
+            )}
           </div>
         )}
 

@@ -120,7 +120,7 @@ This runs `npm run build` to produce a static export under `web/out/`, copies it
 
 ### 4. Multi-server in development (hub + local agent)
 
-To exercise the hub/agent flow on your laptop, run two instances on different ports and pair them. No remote machines needed.
+Exercise the full hub/agent flow on one machine — no remote hosts needed.
 
 **A. Start the hub** (frontend + backend, normal dev flow):
 
@@ -132,17 +132,16 @@ cd web && npm run dev
 go run ./cmd/server-monitor --config ./config.example.yaml
 ```
 
-Complete the first-run setup at <http://localhost:3000/setup>. The hub's server list now shows one card (itself).
+Complete the first-run setup at <http://localhost:3000/setup>. The hub's server list shows one card (itself).
 
-**C. Start a second instance as the agent** on port :8090, with its own data dir:
+**C. Start a second instance as the agent** on port :8090, with its own data dir. Bind to `0.0.0.0` so the URL the agent prints is reachable from any browser/process on your LAN (works fine for same-host too):
 
 ```bash
-# Terminal C
 mkdir -p ./data-agent
 cat > ./config.agent.yaml <<EOF
 mode: agent
 server:
-  bind: "127.0.0.1:8090"
+  bind: "0.0.0.0:8090"
 data_dir: "./data-agent"
 logs:
   allowed_paths: []
@@ -150,25 +149,28 @@ docker:
   enabled: true
 EOF
 
+# Terminal C
 go run ./cmd/server-monitor-agent --config ./config.agent.yaml
-# (or with the full binary: go run ./cmd/server-monitor --config ./config.agent.yaml)
 ```
 
-The agent will print a one-time setup token to the terminal on first boot — you don't need it for pairing, but you can use it via `curl` later if you want to administer the agent directly.
+The agent **prints a pairing token on first boot**, e.g.:
 
-**D. Pair the agent**:
+```
+=================================================================
+Agent first-run — paste this into the hub's 'Add server' form:
 
-```bash
-# Terminal D (one-shot)
-go run ./cmd/server-monitor-agent pair http://127.0.0.1:8090 --config ./config.agent.yaml
-# prints  sm://...
+  sm://eyJ2IjoxLCJ1cmwiOiJodHRwOi8vMTcyLjE4LjIwMS43Mjo4MDkwIi...
+
+Agent URL:   http://172.18.201.72:8090
+...
+=================================================================
 ```
 
-**E. Add it on the hub UI**: open <http://localhost:3000>, click **Add server**, paste the `sm://...` token, click **Save**. The hub starts streaming the agent's snapshot within ~1s. Clicking the card opens the per-server dashboard for it.
+**D. Add it on the hub UI**: open <http://localhost:3000>, click **Add server**, paste the `sm://...` line, **Save**. Done. The hub starts streaming the agent's snapshot within ~1s; clicking the card opens its dashboard.
 
-To tear it all down: stop terminals C and D, `rm -rf data-agent`. The hub will surface the agent as "disconnected" within ~5s — remove it from the list or leave it for next time.
+To reset: stop terminal C, `rm -rf data-agent`. To re-pair without a fresh data dir, run `go run ./cmd/server-monitor-agent pair http://<your-ip>:8090 --config ./config.agent.yaml` and paste that token.
 
-> Tip: the agent's `mode: agent` config also works with the full hub binary, so during development you can use `go run ./cmd/server-monitor` for both instances and just point them at different config files.
+> Tip: the agent's `mode: agent` config also works with the full hub binary, so you can use `go run ./cmd/server-monitor` for both instances and just point them at different config files.
 
 ### Make targets
 
@@ -286,59 +288,42 @@ sudo /usr/local/bin/server-monitor-agent --config /etc/server-monitor.yaml
 
 After this, the hub serves the dashboard on port 8080. Each agent serves only `/api/v1/*` and `/ws/*` on its port — opening it in a browser returns a plain JSON response, not a UI.
 
-### Step 2 — pair each agent to the hub
+### Step 2 — enroll each agent in the hub
 
-There's a single command that generates a key on the agent and emits a one-line pairing token. Run it on the agent host:
-
-```bash
-# Slim agent binary
-sudo server-monitor-agent pair https://10.0.0.5:8080
-# OR with the full binary running as an agent
-sudo server-monitor pair https://10.0.0.5:8080
-```
-
-It prints something like:
+This is just **copy a line, paste it once**. On the agent's first boot you'll see something like this in its log:
 
 ```
-Created API key: pair-prod-web-1-20260517-150405
-Agent URL:       https://10.0.0.5:8080
+=================================================================
+Agent first-run — paste this into the hub's 'Add server' form:
 
-Paste this into the hub's 'Add server' form:
+  sm://eyJ2IjoxLCJ1cmwiOiJodHRwOi8vMTAuMC4wLjU6ODA4MCIsImtleSI6InNtX...
 
-sm://eyJ2IjoxLCJ1cmwiOiJodHRwczovLzEwLjAuMC41OjgwODAiLCJrZXkiOiJzbV9hYmMxMjMifQ
+Agent URL:   http://10.0.0.5:8080
+Key name:    bootstrap-prod-web-1-20260517-150405
+(This token is printed once. Run `server-monitor-agent pair` later
+ to mint another.)
+=================================================================
 ```
 
-Now on the hub's web UI:
+Then on the hub's web UI:
 
 1. Visit `/`.
 2. Click **Add server**.
-3. Paste the `sm://...` token into the **Pairing string** box.
-4. (Optional) override the name.
-5. Click **Test** to confirm, then **Save**.
+3. Paste the `sm://...` line into the **Pairing string** box.
+4. Click **Save**.
 
-The hub immediately opens a WebSocket to the agent. The new card appears with live CPU/memory/uptime. Click it for the full dashboard.
+The hub opens a WebSocket to the agent and the new card appears with live CPU/memory/uptime. Click it for the full dashboard.
 
-> The pairing token contains the API key in clear, so treat it like a password until the hub has consumed it.
-> Need to rotate? Just run `pair` again. Old keys stay valid; revoke them under **Settings → API keys** on the hub (or via the agent's `DELETE /api/v1/api-keys/{id}`).
+The URL is detected automatically from the agent's `bind` setting:
 
-#### Doing it without the `pair` command
+- `bind: "0.0.0.0:8080"` → the agent picks its primary outbound LAN IP (recommended for multi-host setups).
+- `bind: "127.0.0.1:8080"` → the agent uses `127.0.0.1` (only works if the hub is on the same machine).
+- `bind: "<hostname>:8080"` → uses that hostname.
 
-If you can't shell into the agent and only have the running daemon, the `pair` command's two steps — creating an API key and forming the URL — are still available manually:
+> If you missed the line (lost the log, journal rotated, etc.) just run
+> `server-monitor-agent pair http://<agent-host>:8080` on the agent to mint a fresh one. The old key keeps working unless you revoke it.
 
-```bash
-# Log in once to get a JWT cookie
-curl -c /tmp/sm.jar -H 'Content-Type: application/json' \
-     -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
-     https://<agent-host>:8080/api/v1/auth/login
-
-# Mint a key
-curl -b /tmp/sm.jar -H 'Content-Type: application/json' \
-     -d '{"name":"hub-A"}' \
-     https://<agent-host>:8080/api/v1/api-keys
-# → {"id":"ak_xxx","secret":"sm_xxxxxxxx",...}
-```
-
-Then on the hub's Add Server form, expand **Advanced**, paste the URL and the `secret` separately.
+> Need to rotate? Run `pair` for a new token, then revoke the old key under the hub's **Settings → API keys** (or `DELETE /api/v1/api-keys/{id}` against the agent).
 
 ### How proxying works
 
