@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -25,10 +28,85 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		// LAN only — accept same-origin and any localhost during dev.
+	CheckOrigin:     checkOrigin,
+}
+
+// Origin allowlist state. Set once via SetAllowedOrigins during NewServer.
+// Empty means "fall back to same-origin + localhost defaults".
+var (
+	originMu       sync.RWMutex
+	allowedOrigins []string
+)
+
+// SetAllowedOrigins installs the WebSocket Origin allowlist. Pass the
+// config.Server.AllowedOrigins value; an empty slice keeps the default
+// (same-origin + localhost dev) behavior.
+func SetAllowedOrigins(origins []string) {
+	originMu.Lock()
+	defer originMu.Unlock()
+	allowedOrigins = append([]string(nil), origins...)
+}
+
+func getAllowedOrigins() []string {
+	originMu.RLock()
+	defer originMu.RUnlock()
+	return allowedOrigins
+}
+
+// checkOrigin guards WebSocket upgrades against Cross-Site WebSocket Hijack
+// attacks. Browsers attach session cookies to WebSocket handshakes the same
+// way they do for HTTP, so a malicious page loaded in the same browser can
+// otherwise open authenticated sockets to the dashboard. The Origin header
+// is the only signal we have to tell apart "request from our own UI" from
+// "request from evil-site.com riding the user's cookie".
+//
+//   - Empty Origin → allow. Non-browser clients (hub→agent proxy via
+//     ProxyDialer, curl, agent CLIs) don't send Origin at all.
+//   - Explicit allowlist configured → strict match, nothing else passes.
+//   - No allowlist → accept same-origin (Origin host == r.Host) plus any
+//     localhost / 127.0.0.1 / ::1 origin so the Next.js dev server works.
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
 		return true
-	},
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		log.Printf("ws: rejecting malformed Origin %q from %s", origin, r.RemoteAddr)
+		return false
+	}
+
+	if list := getAllowedOrigins(); len(list) > 0 {
+		for _, a := range list {
+			if origin == a {
+				return true
+			}
+		}
+		log.Printf("ws: rejecting Origin %q (not in allowed_origins) from %s", origin, r.RemoteAddr)
+		return false
+	}
+
+	if u.Host == r.Host {
+		return true
+	}
+	if isLocalhostHost(u.Host) {
+		return true
+	}
+	log.Printf("ws: rejecting cross-origin Origin %q (Host=%s) from %s", origin, r.Host, r.RemoteAddr)
+	return false
+}
+
+func isLocalhostHost(host string) bool {
+	if i := strings.LastIndex(host, ":"); i != -1 {
+		// Strip port. Bracketed IPv6 like "[::1]:3000" keeps the brackets,
+		// which is fine — we match "[::1]" explicitly below.
+		host = host[:i]
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "[::1]", "::1":
+		return true
+	}
+	return false
 }
 
 type Server struct {
@@ -39,6 +117,7 @@ type Server struct {
 }
 
 func NewServer(h *hub.Hub, cfg *config.Config, a *auth.Service, docker *collectors.DockerCollector) *Server {
+	SetAllowedOrigins(cfg.Server.AllowedOrigins)
 	return &Server{hub: h, cfg: cfg, auth: a, docker: docker}
 }
 

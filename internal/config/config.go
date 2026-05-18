@@ -32,6 +32,13 @@ func (c *Config) IsAgent() bool { return c.Mode == "agent" }
 type ServerConfig struct {
 	Bind string    `yaml:"bind"`
 	TLS  TLSConfig `yaml:"tls"`
+	// AllowedOrigins gates WebSocket upgrades by the browser-supplied Origin
+	// header. Empty (default) falls back to same-origin + localhost dev — the
+	// usual case when the embedded UI and the API are served from the same
+	// host. Set this in production if the dashboard is loaded from a different
+	// host than the API (e.g. behind a reverse proxy with a different name),
+	// otherwise legitimate connections will be rejected.
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type TLSConfig struct {

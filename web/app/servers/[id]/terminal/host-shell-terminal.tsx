@@ -128,8 +128,8 @@ export default function HostShellTerminal({ serverId }: { serverId: string }) {
   return (
     <div
       ref={termRef}
-      className="w-full"
-      style={{ height: 'calc(100vh - 220px)', minHeight: '420px', padding: '10px', background: '#08090d' }}
+      className="h-full w-full"
+      style={{ padding: '10px', background: '#08090d' }}
     />
   );
 }
