@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -92,21 +93,71 @@ func checkOrigin(r *http.Request) bool {
 	if isLocalhostHost(u.Host) {
 		return true
 	}
+	// Accept any origin whose host is bound to one of THIS machine's
+	// network interfaces. This is the "LAN dev without config" path: if
+	// the browser hits the hub at its LAN IP (e.g. http://10.0.0.5:3000
+	// via the Next.js dev proxy), the IP "10.0.0.5" is an address we
+	// own — accepting it is no less safe than accepting same-origin,
+	// and it removes the need to set allowed_origins for typical
+	// LAN-only deployments.
+	if isLocalInterfaceIP(u.Host) {
+		return true
+	}
 	log.Printf("ws: rejecting cross-origin Origin %q (Host=%s) from %s", origin, r.Host, r.RemoteAddr)
 	return false
 }
 
 func isLocalhostHost(host string) bool {
-	if i := strings.LastIndex(host, ":"); i != -1 {
-		// Strip port. Bracketed IPv6 like "[::1]:3000" keeps the brackets,
-		// which is fine — we match "[::1]" explicitly below.
-		host = host[:i]
+	h, _, err := net.SplitHostPort(host)
+	if err != nil {
+		h = host
 	}
-	switch host {
-	case "localhost", "127.0.0.1", "[::1]", "::1":
+	// SplitHostPort returns "::1" without brackets for "[::1]:3000".
+	switch h {
+	case "localhost", "127.0.0.1", "::1":
 		return true
 	}
 	return false
+}
+
+var (
+	localIPsOnce sync.Once
+	localIPSet   map[string]bool
+)
+
+func isLocalInterfaceIP(hostport string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = hostport
+	}
+	localIPsOnce.Do(func() {
+		localIPSet = collectLocalIPs()
+	})
+	return localIPSet[host]
+}
+
+func collectLocalIPs() map[string]bool {
+	out := map[string]bool{}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, iface := range ifaces {
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip != nil {
+				out[ip.String()] = true
+			}
+		}
+	}
+	return out
 }
 
 type Server struct {

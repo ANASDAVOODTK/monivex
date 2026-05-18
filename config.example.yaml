@@ -16,6 +16,24 @@ server:
     enabled: false
     cert_file: ""
     key_file: ""
+  # WebSocket Origin allowlist (hub mode). Browsers send an Origin header on
+  # every WebSocket handshake; rejecting unknown origins prevents a malicious
+  # page in the same browser from hijacking your logged-in session.
+  #
+  # Leave empty when the embedded UI and the API are served from the same
+  # host:port — the default same-origin fallback handles that automatically.
+  #
+  # Set this when:
+  #   - dev: Next.js dev server (port 3000) proxies to this backend on :8080
+  #          → list the URL you actually type in the browser.
+  #   - prod: dashboard is served from a different hostname than the API
+  #          (reverse proxy with a custom name, separate UI domain, etc.).
+  #
+  # Agents do NOT need to set this — hub→agent proxy connections have no
+  # Origin header and are allowed by default.
+  allowed_origins: []
+    # - "http://localhost:3000"
+    # - "http://10.241.8.32:3000"   # your hub's LAN IP for the dev URL
 
 data_dir: "./data"
 
