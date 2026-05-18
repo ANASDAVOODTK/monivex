@@ -15,6 +15,7 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  Terminal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -28,6 +29,7 @@ export const NAV_TEMPLATE = [
   { suffix: '/templates', label: 'Templates', icon: Boxes },
   { suffix: '/disks', label: 'Disks', icon: HardDrive },
   { suffix: '/logs', label: 'Logs', icon: ScrollText },
+  { suffix: '/terminal', label: 'Terminal', icon: Terminal },
 ];
 
 export function Sidebar({

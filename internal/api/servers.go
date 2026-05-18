@@ -448,6 +448,18 @@ func (s *Server) handleScopedWSDockerLogs(w http.ResponseWriter, r *http.Request
 	ws.Proxy(w, r, sv.BaseURL, apiKey, "/ws/docker/logs/"+cid, r.URL.RawQuery)
 }
 
+func (s *Server) handleScopedWSShell(w http.ResponseWriter, r *http.Request) {
+	sv, apiKey, ok := s.resolveServer(w, r)
+	if !ok {
+		return
+	}
+	if sv.IsSelf {
+		s.ws.HandleShell(w, r)
+		return
+	}
+	ws.Proxy(w, r, sv.BaseURL, apiKey, "/ws/shell", r.URL.RawQuery)
+}
+
 // primaryDisk picks the root mount, or the first disk if no root is found.
 func primaryDisk(snap *metrics.Snapshot) *metrics.Disk {
 	if snap == nil {

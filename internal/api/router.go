@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/ws/logs", s.ws.HandleLogs)
 	r.Get("/ws/docker/exec/{id}", s.ws.HandleDockerExec)
 	r.Get("/ws/docker/logs/{id}", s.ws.HandleDockerLogs)
+	r.Get("/ws/shell", s.ws.HandleShell)
 
 	// Server-scoped WebSockets — proxy or local based on serverId (hub mode only).
 	if s.registry != nil {
@@ -136,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/ws/servers/{serverId}/logs", s.handleScopedWSLogs)
 		r.Get("/ws/servers/{serverId}/docker/exec/{id}", s.handleScopedWSDockerExec)
 		r.Get("/ws/servers/{serverId}/docker/logs/{id}", s.handleScopedWSDockerLogs)
+		r.Get("/ws/servers/{serverId}/shell", s.handleScopedWSShell)
 	}
 
 	// Static UI
