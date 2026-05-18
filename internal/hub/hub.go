@@ -27,6 +27,12 @@ type Hub struct {
 	// caches refreshed less frequently
 	servicesCache    []metrics.ServiceUnit
 	servicesCachedAt time.Time
+
+	// Process list is expensive (one /proc walk + several syscalls per PID)
+	// and humans can't perceive per-second changes anyway. Refresh every ~3s
+	// while CPU/mem/network keep updating at the full sample rate.
+	processesCache    []metrics.Process
+	processesCachedAt time.Time
 }
 
 func New(cfg *config.Config, st *store.Store) *Hub {
@@ -126,7 +132,14 @@ func (h *Hub) sample(ctx context.Context) {
 	snap.Network = h.system.CollectNetwork(ctx)
 	snap.Load = h.system.CollectLoad(ctx)
 	snap.GPUs = h.gpu.Collect(ctx)
-	snap.Processes = h.system.CollectProcesses(ctx)
+	// processes list refreshed every 3s — expensive, low-value-at-1Hz
+	if time.Since(h.processesCachedAt) > 3*time.Second {
+		if list := h.system.CollectProcesses(ctx); list != nil {
+			h.processesCache = list
+			h.processesCachedAt = time.Now()
+		}
+	}
+	snap.Processes = h.processesCache
 	snap.Docker = h.docker.Collect(ctx)
 	snap.DockerError = h.docker.LastError()
 

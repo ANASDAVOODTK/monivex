@@ -1,0 +1,40 @@
+# Hub — the dashboard you log into. One of these per fleet.
+#
+#   docker compose -f docker-compose.hub.yml up -d
+#   docker compose -f docker-compose.hub.yml logs -f         # see first-run setup token
+#
+# Then open  http://<this-host>:8080/setup  to create the admin user.
+
+services:
+  server-monitor:
+    image: anasdavoodtk/server-monitor:latest
+    container_name: server-monitor-hub
+    restart: unless-stopped
+    environment:
+      SM_MODE: hub
+      SM_BIND: 0.0.0.0:8080
+      # Comma-separated list of host paths the UI may tail.
+      # Add more to /host/var/log mount below if you change this.
+      SM_LOG_PATHS: /host/var/log/syslog,/host/var/log/auth.log
+    ports:
+      - "8080:8080"
+    # Persistent state: SQLite DB, JWT secret, API keys, template deployments.
+    volumes:
+      - ./data:/var/lib/server-monitor
+
+      # Talk to the host's Docker. Needed for the Docker page + templates.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # gopsutil reads /proc and /sys; bind-mount the host's so we see the
+      # host, not the container.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+
+      # Log tailing (read-only). Adjust SM_LOG_PATHS to match.
+      - /var/log:/host/var/log:ro
+    # The container's "monitor" user (uid 1000) needs to read the docker
+    # socket. Either chown the socket OR add the host's docker GID here.
+    # Find it with:  getent group docker | cut -d: -f3
+    group_add:
+      - "999"   # <-- replace with your host's docker GID

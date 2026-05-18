@@ -2,8 +2,10 @@ package collectors
 
 import (
 	"context"
+	"os/user"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,42 +26,69 @@ type SystemCollector struct {
 	lastNet   map[string]net.IOCountersStat
 	lastNetAt time.Time
 	topN      int
+
+	// Static info captured once at startup — hostname/OS/CPU model/cores/threads
+	// don't change at runtime, so re-reading /proc/cpuinfo and the host info
+	// every second was pure waste.
+	hostStatic metrics.Host
+	cpuStatic  cpuStaticInfo
+}
+
+type cpuStaticInfo struct {
+	Model   string
+	Cores   int
+	Threads int
 }
 
 func NewSystemCollector(topN int) *SystemCollector {
 	if topN <= 0 {
 		topN = 50
 	}
-	return &SystemCollector{topN: topN}
+	c := &SystemCollector{topN: topN}
+	c.initStatic()
+	return c
 }
 
-func (c *SystemCollector) CollectHost(ctx context.Context) metrics.Host {
-	info, err := host.InfoWithContext(ctx)
-	if err != nil {
-		return metrics.Host{Hostname: "unknown", OS: runtime.GOOS}
+func (c *SystemCollector) initStatic() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if info, err := host.InfoWithContext(ctx); err == nil && info != nil {
+		c.hostStatic = metrics.Host{
+			Hostname:        info.Hostname,
+			OS:              info.OS,
+			Platform:        info.Platform,
+			PlatformVersion: info.PlatformVersion,
+			KernelVersion:   info.KernelVersion,
+			BootTime:        info.BootTime,
+		}
+	} else {
+		c.hostStatic = metrics.Host{Hostname: "unknown", OS: runtime.GOOS}
 	}
-	return metrics.Host{
-		Hostname:        info.Hostname,
-		OS:              info.OS,
-		Platform:        info.Platform,
-		PlatformVersion: info.PlatformVersion,
-		KernelVersion:   info.KernelVersion,
-		Uptime:          info.Uptime,
-		BootTime:        info.BootTime,
-	}
-}
-
-func (c *SystemCollector) CollectCPU(ctx context.Context) metrics.CPU {
-	infos, _ := cpu.InfoWithContext(ctx)
-	model := ""
-	cores := 0
-	if len(infos) > 0 {
-		model = strings.TrimSpace(infos[0].ModelName)
+	if infos, err := cpu.InfoWithContext(ctx); err == nil && len(infos) > 0 {
+		c.cpuStatic.Model = strings.TrimSpace(infos[0].ModelName)
+		cores := 0
 		for _, i := range infos {
 			cores += int(i.Cores)
 		}
+		c.cpuStatic.Cores = cores
 	}
-	threads, _ := cpu.CountsWithContext(ctx, true)
+	if threads, err := cpu.CountsWithContext(ctx, true); err == nil {
+		c.cpuStatic.Threads = threads
+	}
+}
+
+func (c *SystemCollector) CollectHost(ctx context.Context) metrics.Host {
+	h := c.hostStatic
+	if h.BootTime > 0 {
+		now := uint64(time.Now().Unix())
+		if now > h.BootTime {
+			h.Uptime = now - h.BootTime
+		}
+	}
+	return h
+}
+
+func (c *SystemCollector) CollectCPU(ctx context.Context) metrics.CPU {
 	per, _ := cpu.PercentWithContext(ctx, 0, true)
 	overall := 0.0
 	if len(per) > 0 {
@@ -70,9 +99,9 @@ func (c *SystemCollector) CollectCPU(ctx context.Context) metrics.CPU {
 		overall = sum / float64(len(per))
 	}
 	return metrics.CPU{
-		Cores:   cores,
-		Threads: threads,
-		Model:   model,
+		Cores:   c.cpuStatic.Cores,
+		Threads: c.cpuStatic.Threads,
+		Model:   c.cpuStatic.Model,
 		Overall: overall,
 		PerCore: per,
 	}
@@ -183,46 +212,101 @@ func (c *SystemCollector) CollectLoad(ctx context.Context) metrics.Load {
 	return metrics.Load{Load1: l.Load1, Load5: l.Load5, Load15: l.Load15}
 }
 
+// CollectProcesses uses two passes to avoid expensive /proc reads on the
+// hundreds of processes we end up discarding anyway:
+//
+//   Pass 1 (all processes): cheap fields only — Name, CPUPercent, MemoryInfo —
+//     enough to sort by CPU and identify the row.
+//   Pass 2 (top-N survivors): the expensive stuff — Cmdline, Username,
+//     Status, CreateTime, NumThreads.
+//
+// Username lookups are deduplicated by UID within a single snapshot so
+// getpwuid (which can hit NSS/LDAP/SSSD) runs once per distinct user, not
+// once per process.
 func (c *SystemCollector) CollectProcesses(ctx context.Context) []metrics.Process {
 	procs, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil
 	}
-	out := make([]metrics.Process, 0, len(procs))
+
+	// Total memory is needed to compute MemPercent without paying for
+	// gopsutil's per-process MemoryPercent() (which re-reads VirtualMemory
+	// for every process).
+	var totalMem uint64
+	if vm, err := mem.VirtualMemoryWithContext(ctx); err == nil && vm != nil {
+		totalMem = vm.Total
+	}
+
+	type entry struct {
+		p      *process.Process
+		name   string
+		cpuPct float64
+		memRSS uint64
+	}
+	entries := make([]entry, 0, len(procs))
 	for _, p := range procs {
-		name, _ := p.NameWithContext(ctx)
 		cpuP, _ := p.CPUPercentWithContext(ctx)
-		memP, _ := p.MemoryPercentWithContext(ctx)
 		mi, _ := p.MemoryInfoWithContext(ctx)
-		st, _ := p.StatusWithContext(ctx)
-		username, _ := p.UsernameWithContext(ctx)
-		nt, _ := p.NumThreadsWithContext(ctx)
-		ct, _ := p.CreateTimeWithContext(ctx)
-		cmd, _ := p.CmdlineWithContext(ctx)
+		name, _ := p.NameWithContext(ctx)
 		var rss uint64
 		if mi != nil {
 			rss = mi.RSS
 		}
+		entries = append(entries, entry{p: p, name: name, cpuPct: cpuP, memRSS: rss})
+	}
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].cpuPct > entries[j].cpuPct })
+	if len(entries) > c.topN {
+		entries = entries[:c.topN]
+	}
+
+	userCache := map[uint32]string{}
+	out := make([]metrics.Process, 0, len(entries))
+	for _, e := range entries {
+		p := e.p
+		st, _ := p.StatusWithContext(ctx)
+		nt, _ := p.NumThreadsWithContext(ctx)
+		ct, _ := p.CreateTimeWithContext(ctx)
+		cmd, _ := p.CmdlineWithContext(ctx)
+
+		// UID→username cache. On platforms where Uids() isn't supported
+		// (Windows), fall back to gopsutil's Username().
+		username := ""
+		if uids, err := p.UidsWithContext(ctx); err == nil && len(uids) > 0 {
+			uid := uids[0]
+			if u, ok := userCache[uid]; ok {
+				username = u
+			} else {
+				if uobj, err := user.LookupId(strconv.Itoa(int(uid))); err == nil {
+					username = uobj.Username
+				}
+				userCache[uid] = username
+			}
+		} else {
+			username, _ = p.UsernameWithContext(ctx)
+		}
+
+		var memPct float32
+		if totalMem > 0 {
+			memPct = float32(float64(e.memRSS) / float64(totalMem) * 100)
+		}
+
 		status := ""
 		if len(st) > 0 {
 			status = strings.Join(st, ",")
 		}
 		out = append(out, metrics.Process{
 			PID:        p.Pid,
-			Name:       name,
+			Name:       e.name,
 			User:       username,
-			CPUPercent: cpuP,
-			MemPercent: memP,
-			MemRSS:     rss,
+			CPUPercent: e.cpuPct,
+			MemPercent: memPct,
+			MemRSS:     e.memRSS,
 			Status:     status,
 			CreateTime: ct,
 			NumThreads: nt,
 			Command:    cmd,
 		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CPUPercent > out[j].CPUPercent })
-	if len(out) > c.topN {
-		out = out[:c.topN]
 	}
 	return out
 }

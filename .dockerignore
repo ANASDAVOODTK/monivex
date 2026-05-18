@@ -1,0 +1,28 @@
+# Build artifacts
+bin/
+*.exe
+data/
+data-*/
+
+# Frontend
+web/node_modules/
+web/.next/
+web/out/
+cmd/server-monitor/web-out/*
+!cmd/server-monitor/web-out/.gitkeep
+
+# Local state / IDE
+.git/
+.github/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docs / plans — keep README in image? not needed
+plan.md
+
+# CI / config that doesn't belong in build context
+config.yaml
+config.agent.yaml

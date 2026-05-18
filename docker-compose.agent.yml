@@ -1,0 +1,30 @@
+# Agent — headless monitored host. Run one of these on every machine you
+# want the hub to see.
+#
+#   docker compose -f docker-compose.agent.yml up -d
+#   docker compose -f docker-compose.agent.yml logs server-monitor | head -40
+#       └─ copy the printed sm://... pairing token and paste it into the
+#          hub's "Add server" form.
+#
+# No UI is served — the API port just has to be reachable from the hub.
+
+services:
+  server-monitor:
+    image: anasdavoodtk/server-monitor:latest
+    container_name: server-monitor-agent
+    restart: unless-stopped
+    environment:
+      SM_MODE: agent
+      SM_BIND: 0.0.0.0:8090
+      SM_LOG_PATHS: /host/var/log/syslog
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/var/lib/server-monitor
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+    group_add:
+      - "999"   # <-- replace with `getent group docker | cut -d: -f3` from the host

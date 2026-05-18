@@ -10,6 +10,7 @@ Run the same binary on every machine you want to monitor. Designate one instance
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [Run with Docker (recommended)](#run-with-docker-recommended)
 - [Development setup](#development-setup)
 - [Production: single server](#production-single-server)
 - [Production: multi-server (hub + agents)](#production-multi-server-hub--agents)
@@ -69,6 +70,115 @@ Key points:
 - **One-line pairing.** Run `server-monitor-agent pair <url>` on the agent, paste the resulting `sm://...` token into the hub's **Add server** form — that's it. The token wraps URL + API key in one string.
 - **Per-server API keys.** Each agent issues API keys (revocable, secrets shown once). The hub stores them encrypted with AES-GCM derived from its JWT secret.
 - **Static UI.** The Next.js app is exported to plain HTML/JS and embedded into the Go binary via `go:embed`.
+
+---
+
+## Run with Docker (recommended)
+
+One image — `anasdavoodtk/server-monitor` — runs as either a hub or an agent. Pick the right compose file, set your host's docker GID, and `docker compose up -d`.
+
+### Hub host (the one you log into)
+
+Save this as `docker-compose.yml` on the host:
+
+```yaml
+services:
+  server-monitor:
+    image: anasdavoodtk/server-monitor:latest
+    container_name: server-monitor-hub
+    restart: unless-stopped
+    environment:
+      SM_MODE: hub
+      SM_BIND: 0.0.0.0:8080
+      SM_LOG_PATHS: /host/var/log/syslog,/host/var/log/auth.log
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/var/lib/server-monitor
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+    group_add:
+      - "999"   # <-- replace with: getent group docker | cut -d: -f3
+```
+
+Then:
+
+```bash
+# Find your host's docker GID and put it in group_add above
+getent group docker | cut -d: -f3
+
+docker compose up -d
+docker compose logs -f server-monitor      # grab the first-run setup token
+```
+
+Open <http://your-host:8080/setup>, paste the token, create the admin user. Done.
+
+### Every monitored host (agent)
+
+```yaml
+services:
+  server-monitor:
+    image: anasdavoodtk/server-monitor:latest
+    container_name: server-monitor-agent
+    restart: unless-stopped
+    environment:
+      SM_MODE: agent
+      SM_BIND: 0.0.0.0:8090
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/var/lib/server-monitor
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+    group_add:
+      - "999"   # <-- getent group docker | cut -d: -f3
+```
+
+```bash
+docker compose up -d
+docker compose logs server-monitor | head -40
+```
+
+The log shows an `sm://...` line — paste it into the hub UI's **Add server** form. That's it.
+
+### Env vars the entrypoint accepts
+
+| Variable             | Default                                | Notes                                                  |
+| -------------------- | -------------------------------------- | ------------------------------------------------------ |
+| `SM_MODE`            | `hub`                                  | `hub` or `agent`.                                      |
+| `SM_BIND`            | `0.0.0.0:8080`                         | Listen address inside the container.                   |
+| `SM_DATA_DIR`        | `/var/lib/server-monitor`              | Matches the volume mount.                              |
+| `SM_DOCKER_SOCKET`   | `/var/run/docker.sock`                 | Where the agent finds the host's docker socket.        |
+| `SM_TEMPLATES_ROOT`  | `/var/lib/server-monitor/templates`    | Where rendered compose files live.                     |
+| `SM_LOG_PATHS`       | empty                                  | Comma-separated allowlist for `/logs` page.            |
+| `SM_TLS_CERT` / `SM_TLS_KEY` | empty                          | Paths inside the container to PEM files.               |
+| `HOST_PROC/SYS/ETC`  | `/host/proc` etc.                      | Set automatically; matches the mounts above.           |
+
+Want a real config file instead of env vars? Mount one at `/etc/server-monitor/config.yaml` — the entrypoint detects it and skips its env-driven template.
+
+### What works inside Docker
+
+✅ CPU/RAM/disk/network/process metrics (via the `/host/proc` + `/host/sys` mounts).
+✅ Docker page + container start/stop/restart, exec terminal, container logs (via the socket mount).
+✅ Templates — Supabase, Qdrant — image ships the `docker` CLI + compose plugin.
+✅ Log tailing for anything under the `/var/log` bind mount.
+✅ Multi-server: hub talks to agents over HTTP/WebSocket exactly like the binary install.
+❌ systemd services collector — DBus isn't proxied into the container. The page renders empty.
+
+### Push your own image
+
+```bash
+docker login
+make docker IMAGE=youruser/server-monitor TAG=v0.1.0
+make docker-push IMAGE=youruser/server-monitor TAG=v0.1.0
+# Produces youruser/server-monitor:v0.1.0 AND youruser/server-monitor:latest
+```
 
 ---
 
@@ -475,7 +585,21 @@ proxy_read_timeout 600s;
 
 **GPU metrics missing** — verify `nvidia-smi` works as the `server-monitor` user. Set `gpu.backend: "nvidia-smi"` if NVML isn't picked up.
 
-**Docker containers not showing / "permission denied while trying to connect to the docker API"** — the user running server-monitor isn't in the `docker` group. The Docker page in the UI now shows this error directly with the fix, but the steps are:
+**Docker containers not showing / "permission denied while trying to connect to the docker API" inside the container** — the container's `monitor` user (uid 1000) doesn't have permission on the bind-mounted `/var/run/docker.sock`. Fix:
+
+```bash
+# On the host:
+getent group docker | cut -d: -f3        # prints e.g. 988
+
+# In your compose file, set:
+#   group_add:
+#     - "988"
+docker compose up -d
+```
+
+The Docker page will show the original error inline with the fix steps if it ever happens again.
+
+**Docker containers not showing / "permission denied" on the bare-metal install** — the user running server-monitor isn't in the host `docker` group. The Docker page in the UI now shows this error directly with the fix, but the steps are:
 
 ```bash
 # Replace <user> with whoever runs the agent. With the systemd installer it's

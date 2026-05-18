@@ -1,7 +1,12 @@
-.PHONY: all web build backend agent run dev clean tidy
+.PHONY: all web build backend agent run dev clean tidy docker docker-push
 
 BIN := bin/server-monitor
 AGENT_BIN := bin/server-monitor-agent
+
+# Docker image. Override on the command line:
+#   make docker IMAGE=youruser/server-monitor TAG=v0.1.0
+IMAGE ?= anasdavoodtk/server-monitor
+TAG   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 
 all: build
 
@@ -43,3 +48,14 @@ clean:
 	mkdir -p cmd/server-monitor/web-out
 	echo "# placeholder" > cmd/server-monitor/web-out/.gitkeep
 	rm -f $(AGENT_BIN)
+
+# Build the Docker image. Multi-stage Dockerfile compiles the web export AND
+# the Go binary inside the image — no need to `make build` first.
+docker:
+	docker build -t $(IMAGE):$(TAG) -t $(IMAGE):latest .
+
+# Push the just-built image (and :latest) to a registry. Run `docker login`
+# first. Override IMAGE / TAG to publish under your own namespace.
+docker-push: docker
+	docker push $(IMAGE):$(TAG)
+	docker push $(IMAGE):latest
