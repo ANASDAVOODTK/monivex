@@ -17,6 +17,9 @@ import (
 type DockerCollector struct {
 	enabled bool
 	cli     *client.Client
+
+	errMu   sync.RWMutex
+	lastErr string
 }
 
 func NewDockerCollector(enabled bool, socket string) *DockerCollector {
@@ -35,6 +38,25 @@ func NewDockerCollector(enabled bool, socket string) *DockerCollector {
 }
 
 func (d *DockerCollector) Available() bool { return d.enabled }
+
+// LastError returns the most recent connection/list error, or "" if the last
+// poll succeeded. Used to surface "docker socket permission denied" etc. in
+// the UI instead of just showing an empty container list.
+func (d *DockerCollector) LastError() string {
+	d.errMu.RLock()
+	defer d.errMu.RUnlock()
+	return d.lastErr
+}
+
+func (d *DockerCollector) setError(err error) {
+	d.errMu.Lock()
+	defer d.errMu.Unlock()
+	if err == nil {
+		d.lastErr = ""
+		return
+	}
+	d.lastErr = err.Error()
+}
 
 // Client returns the raw Docker client for advanced operations (e.g. exec).
 func (d *DockerCollector) Client() *client.Client { return d.cli }
@@ -114,8 +136,10 @@ func (d *DockerCollector) Collect(ctx context.Context) []metrics.Container {
 	defer cancel()
 	list, err := d.cli.ContainerList(cctx, container.ListOptions{All: true})
 	if err != nil {
+		d.setError(err)
 		return nil
 	}
+	d.setError(nil)
 	results := make([]metrics.Container, len(list))
 	var wg sync.WaitGroup
 	for i, c := range list {

@@ -10,6 +10,7 @@ export interface Snapshot {
   gpus: GPU[] | null;
   processes: Process[] | null;
   docker: Container[] | null;
+  docker_error?: string;
   services: ServiceUnit[] | null;
 }
 

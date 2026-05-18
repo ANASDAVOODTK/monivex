@@ -15,7 +15,11 @@ type Snapshot struct {
 	GPUs      []GPU         `json:"gpus"`
 	Processes []Process     `json:"processes"`
 	Docker    []Container   `json:"docker"`
-	Services  []ServiceUnit `json:"services"`
+	// DockerError is the most recent error from `docker ps` (e.g. "permission
+	// denied while trying to connect to the docker API"). Empty when docker
+	// is reachable.
+	DockerError string        `json:"docker_error,omitempty"`
+	Services    []ServiceUnit `json:"services"`
 }
 
 type Host struct {

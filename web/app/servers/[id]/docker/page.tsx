@@ -17,12 +17,17 @@ function Docker() {
   const serverId = (params?.id ?? '') as string;
   const { current } = useServerMetrics(serverId);
   const containers = current?.docker ?? [];
+  const dockerErr = current?.docker_error;
+
+  if (dockerErr) {
+    return <DockerError message={dockerErr} />;
+  }
 
   if (!containers.length) {
     return (
       <EmptyState
         title="No containers"
-        message="Docker stats are not available from this host."
+        message="Docker is reachable but no containers are running on this host."
         icon={<ContainerIcon className="size-5" />}
       />
     );
@@ -153,5 +158,48 @@ function MetricChip({
       <span className="text-fg-muted">{label}</span>
       <span className="ml-2 font-medium text-fg">{value}</span>
     </span>
+  );
+}
+
+function DockerError({ message }: { message: string }) {
+  const permissionDenied = /permission denied/i.test(message);
+  return (
+    <div className="space-y-4">
+      <div className="card card-pad border-rose-400/40 bg-rose-400/10">
+        <div className="flex items-start gap-3">
+          <ContainerIcon className="mt-0.5 size-5 shrink-0 text-rose-300" />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-rose-100">Docker is not reachable</h2>
+            <pre className="mt-2 overflow-x-auto rounded bg-black/40 p-3 font-mono text-[11px] text-rose-200">
+              {message}
+            </pre>
+            {permissionDenied && (
+              <div className="mt-3 space-y-2 text-sm text-fg-muted">
+                <div className="font-medium text-fg">
+                  Add the server-monitor user to the <code className="font-mono">docker</code> group:
+                </div>
+                <pre className="overflow-x-auto rounded bg-black/40 p-3 font-mono text-[11px] text-fg">
+{`# replace <user> with whatever runs server-monitor (often "anas" or "server-monitor")
+sudo usermod -aG docker <user>
+
+# log the user out and back in (or run in the same shell):
+newgrp docker
+
+# verify
+docker ps
+
+# finally, restart the agent so it picks up new group membership
+sudo systemctl restart server-monitor   # or kill+restart your dev process`}
+                </pre>
+                <div className="text-xs text-fg-subtle">
+                  Same fix applies to templates — they shell out to <code className="font-mono">docker compose</code>{' '}
+                  and need the same socket access.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

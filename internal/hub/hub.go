@@ -128,6 +128,7 @@ func (h *Hub) sample(ctx context.Context) {
 	snap.GPUs = h.gpu.Collect(ctx)
 	snap.Processes = h.system.CollectProcesses(ctx)
 	snap.Docker = h.docker.Collect(ctx)
+	snap.DockerError = h.docker.LastError()
 
 	// services list refreshed every 10s
 	if time.Since(h.servicesCachedAt) > 10*time.Second {

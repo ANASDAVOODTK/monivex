@@ -475,7 +475,22 @@ proxy_read_timeout 600s;
 
 **GPU metrics missing** — verify `nvidia-smi` works as the `server-monitor` user. Set `gpu.backend: "nvidia-smi"` if NVML isn't picked up.
 
-**Docker containers not showing** — the `server-monitor` user needs access to `/var/run/docker.sock` (membership in the `docker` group, then restart the service).
+**Docker containers not showing / "permission denied while trying to connect to the docker API"** — the user running server-monitor isn't in the `docker` group. The Docker page in the UI now shows this error directly with the fix, but the steps are:
+
+```bash
+# Replace <user> with whoever runs the agent. With the systemd installer it's
+# "server-monitor"; with `go run` during development it's your login user.
+sudo usermod -aG docker <user>
+
+# Make the new group membership active without logging out:
+newgrp docker
+docker ps                # should now succeed
+
+# Restart the agent so it picks up the new group:
+sudo systemctl restart server-monitor      # or kill+restart your dev process
+```
+
+This same fix also resolves template deploys that fail with `unable to get image '...': permission denied while trying to connect to the docker API` — templates shell out to `docker compose` and need the exact same socket access.
 
 **Deep-linking to `/servers/<id>/...` returns the server list** — the SPA handler is supposed to serve the matching pre-rendered HTML (`servers/_/...html`) for any unknown `<id>`. If it doesn't, you're probably running an older build before that fix. Run `make build` again.
 
