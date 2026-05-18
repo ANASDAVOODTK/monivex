@@ -65,7 +65,10 @@ export default function HostShellTerminal({ serverId }: { serverId: string }) {
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
+      let opened = false;
+
       ws.onopen = () => {
+        opened = true;
         terminal.writeln('\x1b[1;32m* Connected.\x1b[0m\r\n');
         const dims = fitAddon.proposeDimensions();
         if (dims) {
@@ -82,11 +85,21 @@ export default function HostShellTerminal({ serverId }: { serverId: string }) {
       };
 
       ws.onerror = () => {
-        terminal.writeln('\r\n\x1b[1;31m* Connection error.\x1b[0m');
+        // Browsers don't expose handshake HTTP status to JS — the close event
+        // is the only signal we get. Detail is logged in the server logs.
+        terminal.writeln('\r\n\x1b[1;31m* WebSocket error.\x1b[0m');
       };
 
-      ws.onclose = () => {
-        terminal.writeln('\r\n\x1b[1;33m* Session ended.\x1b[0m');
+      ws.onclose = (ev) => {
+        const code = ev.code;
+        const reason = ev.reason ? ` — ${ev.reason}` : '';
+        if (!opened) {
+          terminal.writeln(`\r\n\x1b[1;31m* Failed to connect (code ${code}${reason}).\x1b[0m`);
+          terminal.writeln('\x1b[2m  Common causes: agent not running, auth expired, origin rejected, or PTY failed to start.\x1b[0m');
+          terminal.writeln('\x1b[2m  Check the agent\'s server logs for the exact reason.\x1b[0m');
+        } else {
+          terminal.writeln(`\r\n\x1b[1;33m* Session ended (code ${code}${reason}).\x1b[0m`);
+        }
       };
 
       terminal.onData((data: string) => {
