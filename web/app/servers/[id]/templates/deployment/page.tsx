@@ -389,15 +389,27 @@ function EditConfigDialog({
                           <span className="text-xs font-medium">{f.label}</span>
                           <span className="font-mono text-[10px] text-fg-subtle">{f.key}</span>
                         </div>
-                        <input
-                          type="text"
-                          value={config[f.key] ?? ''}
-                          onChange={(e) =>
-                            setConfig((p) => ({ ...p, [f.key]: e.target.value }))
-                          }
-                          placeholder={f.placeholder || ''}
-                          className="input w-full"
-                        />
+                        {f.type === 'textarea' ? (
+                          <textarea
+                            value={config[f.key] ?? ''}
+                            onChange={(e) =>
+                              setConfig((p) => ({ ...p, [f.key]: e.target.value }))
+                            }
+                            placeholder={f.placeholder || ''}
+                            spellCheck={false}
+                            className="input min-h-64 w-full resize-y font-mono text-xs leading-relaxed"
+                          />
+                        ) : (
+                          <input
+                            type={f.type === 'number' ? 'number' : 'text'}
+                            value={config[f.key] ?? ''}
+                            onChange={(e) =>
+                              setConfig((p) => ({ ...p, [f.key]: e.target.value }))
+                            }
+                            placeholder={f.placeholder || ''}
+                            className="input w-full"
+                          />
+                        )}
                         {f.description && (
                           <div className="text-[11px] text-fg-subtle">{f.description}</div>
                         )}

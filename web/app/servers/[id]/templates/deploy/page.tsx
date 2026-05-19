@@ -356,7 +356,8 @@ function DynamicField({
     <Field label={field.label} required={field.required} description={field.description}>
       {field.type === 'textarea' ? (
         <textarea
-          className="input min-h-24"
+          className="input min-h-64 resize-y font-mono text-xs leading-relaxed"
+          spellCheck={false}
           value={value}
           onChange={handle}
           placeholder={field.placeholder}
