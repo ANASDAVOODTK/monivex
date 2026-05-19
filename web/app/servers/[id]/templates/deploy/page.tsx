@@ -234,7 +234,7 @@ function DeployForm() {
           );
         })}
 
-        {template.ports.length > 0 && (
+        {(template.ports?.length ?? 0) > 0 && (
           <section className="card card-pad space-y-4">
             <SectionTitle
               title="Ports"

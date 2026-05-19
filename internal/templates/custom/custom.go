@@ -46,7 +46,7 @@ func (d *Driver) Definition() templates.Definition {
 				Group:       "compose",
 			},
 		},
-		Ports:          nil,
+		Ports:          []templates.PortField{},
 		SupportsUpdate: true,
 	}
 }

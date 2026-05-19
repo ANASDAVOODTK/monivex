@@ -421,7 +421,7 @@ function EditConfigDialog({
                 </div>
               </div>
 
-              {def.ports.length > 0 && (
+              {(def.ports?.length ?? 0) > 0 && (
                 <div className="space-y-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
                     Host ports
