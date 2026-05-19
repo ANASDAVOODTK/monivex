@@ -95,6 +95,25 @@ type Event struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// BackupFile describes one artifact discovered under a deployment's backup
+// directory. Path is the absolute filesystem path on the host running the
+// agent/hub that owns the deployment.
+type BackupFile struct {
+	Name    string    `json:"name"`
+	Path    string    `json:"path"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
+}
+
+// BackupListing groups backup artifacts by source: Postgres dumps under
+// volumes/backup/db and file-volume tarballs under volumes/backup/files.
+// Root is the absolute backup directory on disk (parent of both lists).
+type BackupListing struct {
+	Root  string       `json:"root"`
+	DB    []BackupFile `json:"db"`
+	Files []BackupFile `json:"files"`
+}
+
 // DeployInput captures what the API receives when starting a new deployment.
 type DeployInput struct {
 	Name   string            `json:"name"`

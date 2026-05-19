@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -449,6 +450,51 @@ func (s *Service) Reconcile(ctx context.Context) {
 			_ = s.store.UpdateTemplateDeploymentStatus(ctx, r.ID, status, msg)
 		}
 	}
+}
+
+// ListBackups walks the conventional backup directories under a deployment's
+// workdir and returns the artifacts it finds. Drivers that emit a backup
+// sidecar (e.g. Supabase) write to {workdir}/volumes/backup/db and
+// {workdir}/volumes/backup/files; drivers without backup support return an
+// empty listing rooted at the same path so the UI can render an empty state
+// uniformly.
+func (s *Service) ListBackups(ctx context.Context, id string) (*BackupListing, error) {
+	d, _, err := s.load(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Join(d.WorkDir, "volumes", "backup")
+	return &BackupListing{
+		Root:  root,
+		DB:    scanBackupDir(filepath.Join(root, "db")),
+		Files: scanBackupDir(filepath.Join(root, "files")),
+	}, nil
+}
+
+func scanBackupDir(dir string) []BackupFile {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []BackupFile{}
+	}
+	out := make([]BackupFile, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, BackupFile{
+			Name:    e.Name(),
+			Path:    filepath.Join(dir, e.Name()),
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+		})
+	}
+	// Newest first — matches what users expect when looking for "the last backup".
+	sort.Slice(out, func(i, j int) bool { return out[i].ModTime.After(out[j].ModTime) })
+	return out
 }
 
 // Events returns recent lifecycle events for a deployment.

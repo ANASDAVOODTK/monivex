@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 				r.Get("/templates/deployments", s.handleDeploymentsList)
 				r.Get("/templates/deployments/{id}", s.handleDeploymentGet)
 				r.Get("/templates/deployments/{id}/events", s.handleDeploymentEvents)
+				r.Get("/templates/deployments/{id}/backups", s.handleDeploymentBackups)
 				r.Post("/templates/deployments/{id}/start", s.handleDeploymentStart)
 				r.Post("/templates/deployments/{id}/stop", s.handleDeploymentStop)
 				r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
@@ -548,6 +549,16 @@ func (s *Server) handleDeploymentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, d)
+}
+
+func (s *Server) handleDeploymentBackups(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	listing, err := s.templates.ListBackups(r.Context(), id)
+	if err != nil {
+		writeErr(w, 404, err.Error())
+		return
+	}
+	writeJSON(w, 200, listing)
 }
 
 func (s *Server) handleDeploymentEvents(w http.ResponseWriter, r *http.Request) {

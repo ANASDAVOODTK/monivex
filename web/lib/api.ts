@@ -144,6 +144,10 @@ export const api = {
     request<import('./types').DeploymentEvent[]>(
       `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/events`,
     ),
+  deploymentBackups: (serverId: string, id: string) =>
+    request<import('./types').BackupListing>(
+      `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/backups`,
+    ),
   deploymentStart: (serverId: string, id: string) =>
     request<{ ok: boolean }>(`/servers/${enc(serverId)}/templates/deployments/${enc(id)}/start`, {
       method: 'POST',

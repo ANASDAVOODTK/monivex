@@ -238,6 +238,7 @@ func (s *Server) registerServerScopedRoutes(r chi.Router) {
 	r.Get("/templates/deployments", s.scoped("/api/v1/templates/deployments", s.handleDeploymentsList))
 	r.Get("/templates/deployments/{id}", s.scopedDeployment("get"))
 	r.Get("/templates/deployments/{id}/events", s.scopedDeployment("events"))
+	r.Get("/templates/deployments/{id}/backups", s.scopedDeployment("backups"))
 	r.Post("/templates/deployments/{id}/start", s.scopedDeployment("start"))
 	r.Post("/templates/deployments/{id}/stop", s.scopedDeployment("stop"))
 	r.Post("/templates/deployments/{id}/update", s.scopedDeployment("update"))
@@ -354,6 +355,8 @@ func (s *Server) scopedDeployment(action string) http.HandlerFunc {
 		switch action {
 		case "events":
 			path += "/events"
+		case "backups":
+			path += "/backups"
 		case "start", "stop", "update", "edit", "delete":
 			path += "/" + action
 		}
@@ -364,6 +367,8 @@ func (s *Server) scopedDeployment(action string) http.HandlerFunc {
 				s.handleDeploymentGet(w, r)
 			case "events":
 				s.handleDeploymentEvents(w, r)
+			case "backups":
+				s.handleDeploymentBackups(w, r)
 			case "start":
 				s.handleDeploymentStart(w, r)
 			case "stop":

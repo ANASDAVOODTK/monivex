@@ -243,6 +243,19 @@ export interface DeploymentEvent {
   created_at: string;
 }
 
+export interface BackupFile {
+  name: string;
+  path: string;
+  size: number;
+  mod_time: string;
+}
+
+export interface BackupListing {
+  root: string;
+  db: BackupFile[];
+  files: BackupFile[];
+}
+
 export interface DeployInput {
   name: string;
   config: Record<string, string>;

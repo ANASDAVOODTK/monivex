@@ -1,15 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
-import type { Deployment, DeploymentEvent, TemplateDefinition } from '@/lib/types';
+import type { BackupListing, Deployment, DeploymentEvent, TemplateDefinition } from '@/lib/types';
 import {
   ArrowLeft,
   Boxes,
   Clock,
+  Database,
+  FileArchive,
+  HardDrive,
   Loader2,
   Pencil,
   Play,
@@ -40,6 +43,7 @@ function DeploymentDetail() {
 
   const [dep, setDep] = useState<Deployment | null>(null);
   const [events, setEvents] = useState<DeploymentEvent[]>([]);
+  const [backups, setBackups] = useState<BackupListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -54,12 +58,14 @@ function DeploymentDetail() {
     }
     setErr(null);
     try {
-      const [d, ev] = await Promise.all([
+      const [d, ev, bk] = await Promise.all([
         api.deploymentGet(serverId, id),
         api.deploymentEvents(serverId, id),
+        api.deploymentBackups(serverId, id).catch(() => null),
       ]);
       setDep(d);
       setEvents(ev);
+      setBackups(bk);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -272,6 +278,8 @@ function DeploymentDetail() {
         )}
       </section>
 
+      <BackupsSection dep={dep} backups={backups} />
+
       <section className="card card-pad space-y-3">
         <div className="text-sm font-semibold">Workdir</div>
         <div className="font-mono text-xs text-fg-muted break-all">{dep.work_dir}</div>
@@ -293,6 +301,176 @@ function DeploymentDetail() {
       )}
     </div>
   );
+}
+
+function BackupsSection({
+  dep,
+  backups,
+}: {
+  dep: Deployment;
+  backups: BackupListing | null;
+}) {
+  const cfg = dep.config;
+  const enabled = useMemo(() => {
+    if (dep.template_id !== 'supabase') return null;
+    const v = (cfg.backup_enabled ?? '').toString().trim().toLowerCase();
+    if (v === '') return true;
+    return v === 'yes' || v === 'true' || v === '1' || v === 'on';
+  }, [cfg.backup_enabled, dep.template_id]);
+
+  // Hide entirely for templates that don't expose a backup configuration.
+  if (enabled === null) return null;
+
+  const schedule = (cfg.backup_schedule ?? '0 3 * * *').toString();
+  const keepDays = (cfg.backup_keep_days ?? '7').toString();
+  const dbCount = backups?.db.length ?? 0;
+  const fileCount = backups?.files.length ?? 0;
+
+  return (
+    <section className="card card-pad space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">Backups</div>
+          <div className="mt-1 text-xs text-fg-muted">
+            Postgres dumps + Storage / Studio file volumes are written into the deployment workdir on schedule.
+          </div>
+        </div>
+        <span
+          className={`rounded-full border px-3 py-1 text-[11px] ${
+            enabled
+              ? 'border-emerald-300/25 bg-emerald-400/10 text-emerald-200'
+              : 'border-white/10 bg-white/[0.04] text-fg-muted'
+          }`}
+        >
+          {enabled ? 'Scheduled backups: ON' : 'Scheduled backups: OFF'}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Stat label="Schedule" value={enabled ? schedule : '—'} mono />
+        <Stat label="Retention (days)" value={enabled ? keepDays : '—'} />
+        <Stat label="Backup root" value={backups?.root || `${dep.work_dir}/volumes/backup`} mono small />
+      </div>
+
+      {!enabled && (
+        <Notice>
+          <div className="text-xs">
+            Backups are currently disabled. Set <span className="font-mono">backup_enabled</span>{' '}
+            to <span className="font-mono">yes</span> in the configuration and apply changes to start the sidecars.
+          </div>
+        </Notice>
+      )}
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <BackupList
+          title="Postgres dumps"
+          icon={<Database className="size-4 text-accent" />}
+          empty={
+            enabled
+              ? 'No Postgres dumps yet. The first backup runs at the next scheduled tick.'
+              : 'Enable scheduled backups to start generating Postgres dumps.'
+          }
+          files={backups?.db ?? []}
+        />
+        <BackupList
+          title="File volumes"
+          icon={<HardDrive className="size-4 text-accent" />}
+          empty={
+            enabled
+              ? 'No file-volume archives yet. Storage + Studio data is tarred on the same schedule.'
+              : 'Enable scheduled backups to start archiving Storage + Studio data.'
+          }
+          files={backups?.files ?? []}
+        />
+      </div>
+
+      <div className="text-[11px] text-fg-subtle">
+        Total: {dbCount} Postgres dump{dbCount === 1 ? '' : 's'} · {fileCount} file archive
+        {fileCount === 1 ? '' : 's'}. Files live on the host running this deployment — copy them off-box
+        for true disaster recovery.
+      </div>
+    </section>
+  );
+}
+
+function BackupList({
+  title,
+  icon,
+  empty,
+  files,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  empty: string;
+  files: { name: string; size: number; mod_time: string }[];
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025]">
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2 text-xs font-semibold">
+        {icon}
+        <span>{title}</span>
+        <span className="ml-auto text-[10px] font-normal text-fg-subtle">{files.length}</span>
+      </div>
+      {files.length === 0 ? (
+        <div className="px-3 py-4 text-[11px] text-fg-subtle">{empty}</div>
+      ) : (
+        <ul className="max-h-72 overflow-y-auto">
+          {files.map((f) => (
+            <li
+              key={f.name}
+              className="flex items-center gap-2 border-b border-white/5 px-3 py-2 text-xs last:border-b-0"
+            >
+              <FileArchive className="size-3.5 shrink-0 text-fg-subtle" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[11px]" title={f.name}>
+                  {f.name}
+                </div>
+                <div className="mt-0.5 text-[10px] text-fg-subtle">
+                  {new Date(f.mod_time).toLocaleString()}
+                </div>
+              </div>
+              <span className="font-mono text-[10px] text-fg-muted">{formatBytes(f.size)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  mono,
+  small,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  small?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div
+        className={`mt-1 break-all ${mono ? 'font-mono' : ''} ${small ? 'text-[11px]' : 'text-sm'} text-fg`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function EditConfigDialog({
