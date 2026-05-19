@@ -37,6 +37,7 @@ import (
 	customtpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/custom"
 	qdranttpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/qdrant"
 	supabasetpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/supabase"
+	vllmtpl "github.com/ANASDAVOODTK/server-monitor/internal/templates/vllm"
 )
 
 func main() {
@@ -93,6 +94,7 @@ func main() {
 	tplReg := templates.NewRegistry()
 	tplReg.Register(qdranttpl.New())
 	tplReg.Register(supabasetpl.New())
+	tplReg.Register(vllmtpl.New())
 	tplReg.Register(customtpl.New())
 	tplSvc := templates.NewService(tplReg, st, cfg.DataDir, cfg.Templates.StorageRoot)
 	go runTemplateReconciler(ctx, tplSvc)
