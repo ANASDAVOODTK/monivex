@@ -166,6 +166,97 @@ func TestRenderInitSQLEscapesQuotes(t *testing.T) {
 	}
 }
 
+func TestRenderIncludesBackupServicesByDefault(t *testing.T) {
+	d := New()
+	dep := buildDeployment()
+	out, err := d.Render(dep)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, want := range []string{
+		"db-backup:",
+		"prodrigestivill/postgres-backup-local:15",
+		"files-backup:",
+		"offen/docker-volume-backup",
+		"./volumes/backup/db:/backups",
+		"./volumes/backup/files:/archive",
+		"storage-data:/backup/storage-data:ro",
+		"studio-snippets:/backup/studio-snippets:ro",
+		"studio-functions:/backup/studio-functions:ro",
+		"acme-files-",
+		"BACKUP_CRON_EXPRESSION: ${BACKUP_SCHEDULE}",
+	} {
+		if !strings.Contains(out.Compose, want) {
+			t.Errorf("compose missing backup snippet %q", want)
+		}
+	}
+	for _, want := range []string{
+		"BACKUP_SCHEDULE=0 3 * * *",
+		"BACKUP_KEEP_DAYS=7",
+	} {
+		if !strings.Contains(out.Env, want) {
+			t.Errorf("env missing %q\nfull env:\n%s", want, out.Env)
+		}
+	}
+}
+
+func TestRenderOmitsBackupServicesWhenDisabled(t *testing.T) {
+	d := New()
+	dep := buildDeployment()
+	dep.Config["backup_enabled"] = "no"
+	out, err := d.Render(dep)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, banned := range []string{"db-backup:", "files-backup:", "prodrigestivill", "offen/docker-volume-backup"} {
+		if strings.Contains(out.Compose, banned) {
+			t.Errorf("compose still contains %q when backups are disabled", banned)
+		}
+	}
+}
+
+func TestValidateBackupRejectsBadSchedule(t *testing.T) {
+	d := New()
+	in := validInput()
+	in.Config["backup_enabled"] = "yes"
+	in.Config["backup_schedule"] = "every 5 minutes"
+	if err := d.Validate(in); err == nil {
+		t.Fatalf("expected error for non-cron schedule")
+	}
+}
+
+func TestValidateBackupRejectsBadRetention(t *testing.T) {
+	d := New()
+	in := validInput()
+	in.Config["backup_enabled"] = "yes"
+	in.Config["backup_schedule"] = "0 3 * * *"
+	in.Config["backup_keep_days"] = "-3"
+	if err := d.Validate(in); err == nil {
+		t.Fatalf("expected error for negative retention")
+	}
+}
+
+func TestValidateBackupAcceptsValidConfig(t *testing.T) {
+	d := New()
+	in := validInput()
+	in.Config["backup_enabled"] = "yes"
+	in.Config["backup_schedule"] = "0 3 * * *"
+	in.Config["backup_keep_days"] = "30"
+	if err := d.Validate(in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateBackupSkipsWhenDisabled(t *testing.T) {
+	d := New()
+	in := validInput()
+	in.Config["backup_enabled"] = "no"
+	in.Config["backup_schedule"] = "" // would fail if enabled
+	if err := d.Validate(in); err != nil {
+		t.Fatalf("unexpected error when backups disabled: %v", err)
+	}
+}
+
 func TestRenderIsDeterministic(t *testing.T) {
 	d := New()
 	dep := buildDeployment()

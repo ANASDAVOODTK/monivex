@@ -42,6 +42,9 @@ func (d *Driver) Definition() templates.Definition {
 			{Key: "smtp_user", Label: "SMTP user", Type: templates.FieldText, Required: false, Group: "smtp"},
 			{Key: "smtp_pass", Label: "SMTP password", Type: templates.FieldSecret, Required: false, Group: "smtp"},
 			{Key: "smtp_sender", Label: "SMTP sender", Type: templates.FieldText, Required: false, Default: "noreply@example.com", Group: "smtp"},
+			{Key: "backup_enabled", Label: "Enable scheduled backups", Type: templates.FieldText, Required: false, Default: "yes", Description: "Set to 'yes' to run automated Postgres + Storage backups inside this deployment. Set to 'no' to skip the backup sidecars entirely.", Group: "backup"},
+			{Key: "backup_schedule", Label: "Backup cron schedule", Type: templates.FieldText, Required: false, Default: "0 3 * * *", Description: "Standard 5-field cron (minute hour dom month dow). Applied to both the Postgres dump and the file-volume tarball.", Group: "backup"},
+			{Key: "backup_keep_days", Label: "Keep daily backups for (days)", Type: templates.FieldNumber, Required: false, Default: "7", Description: "Daily backups older than this are pruned. Postgres backups also retain 4 weekly and 6 monthly snapshots automatically.", Group: "backup"},
 		},
 		Ports: []templates.PortField{
 			{Key: "kong_http", Label: "Kong API gateway", Default: 8000, Description: "Public REST/auth/storage URL host port."},
@@ -70,6 +73,9 @@ func (d *Driver) Validate(input templates.DeployInput) error {
 			return fmt.Errorf("invalid port %q: %d", k, v)
 		}
 	}
+	if err := validateBackupConfig(input.Config); err != nil {
+		return err
+	}
 	for k := range input.Env {
 		if !envKeyRe.MatchString(k) {
 			return fmt.Errorf("invalid env var name %q (use A-Z, 0-9, _; must start with a letter)", k)
@@ -80,10 +86,11 @@ func (d *Driver) Validate(input templates.DeployInput) error {
 
 func (d *Driver) Render(dep *templates.Deployment) (templates.RenderedArtifacts, error) {
 	data := struct {
-		Dep    *templates.Deployment
-		Config map[string]string
-		Ports  map[string]int
-	}{Dep: dep, Config: dep.Config, Ports: dep.Ports}
+		Dep           *templates.Deployment
+		Config        map[string]string
+		Ports         map[string]int
+		BackupEnabled bool
+	}{Dep: dep, Config: dep.Config, Ports: dep.Ports, BackupEnabled: backupEnabled(dep.Config)}
 
 	composeBuf := &bytes.Buffer{}
 	if err := composeTpl.Execute(composeBuf, data); err != nil {
@@ -137,6 +144,8 @@ KONG_HTTP_PORT={{ .Ports.kong_http }}
 KONG_HTTPS_PORT={{ .Ports.kong_https }}
 POSTGRES_PORT={{ .Ports.postgres }}
 PROJECT_SLUG={{ .Dep.Slug }}
+BACKUP_SCHEDULE={{ default .Config.backup_schedule "0 3 * * *" }}
+BACKUP_KEEP_DAYS={{ default .Config.backup_keep_days "7" }}
 `))
 
 var composeTpl = template.Must(template.New("compose").Funcs(template.FuncMap{
@@ -163,3 +172,41 @@ func tmplDefault(value any, fallback string) string {
 
 // envKeyRe restricts user-supplied environment variable names.
 var envKeyRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
+
+// backupEnabled reports whether the user opted in to backup sidecars. The
+// default in the Definition is "yes"; any value other than yes/true/1
+// disables the services.
+func backupEnabled(cfg map[string]string) bool {
+	v := strings.ToLower(strings.TrimSpace(cfg["backup_enabled"]))
+	if v == "" {
+		return true
+	}
+	return v == "yes" || v == "true" || v == "1" || v == "on"
+}
+
+// validateBackupConfig sanity-checks the user-facing backup fields. The cron
+// expression accepts standard 5-field form and the optional leading second
+// (6-field). Anything else would silently break the sidecar so we reject it
+// here with a clear message.
+func validateBackupConfig(cfg map[string]string) error {
+	if !backupEnabled(cfg) {
+		return nil
+	}
+	// Empty values are not an error here — MergeConfig fills them from the
+	// Definition's Default before the deployment is rendered. We only reject
+	// values that are genuinely malformed.
+	if schedule := strings.TrimSpace(cfg["backup_schedule"]); schedule != "" {
+		parts := strings.Fields(schedule)
+		if len(parts) != 5 && len(parts) != 6 {
+			return fmt.Errorf("backup_schedule must be a 5-field cron expression (got %d fields)", len(parts))
+		}
+	}
+	if v := strings.TrimSpace(cfg["backup_keep_days"]); v != "" {
+		if !backupDaysRe.MatchString(v) {
+			return fmt.Errorf("backup_keep_days must be a positive integer (got %q)", v)
+		}
+	}
+	return nil
+}
+
+var backupDaysRe = regexp.MustCompile(`^[1-9][0-9]{0,3}$`)

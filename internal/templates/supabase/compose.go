@@ -218,6 +218,56 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432/tcp"
 
+{{- if .BackupEnabled }}
+
+  db-backup:
+    # Runs pg_dump on a cron schedule and writes compressed dumps to
+    # ./volumes/backup/db on the host. Rotates daily/weekly/monthly files
+    # automatically using BACKUP_KEEP_* settings.
+    image: prodrigestivill/postgres-backup-local:15
+    restart: unless-stopped
+    user: postgres:postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_EXTRA_OPTS: "--clean --if-exists --quote-all-identifiers --no-acl --no-owner -Z9"
+      SCHEDULE: ${BACKUP_SCHEDULE}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS}
+      BACKUP_KEEP_WEEKS: "4"
+      BACKUP_KEEP_MONTHS: "6"
+      HEALTHCHECK_PORT: "8080"
+    volumes:
+      - ./volumes/backup/db:/backups
+
+  files-backup:
+    # Tarballs the Supabase file volumes (Storage uploads + Studio snippets
+    # + Studio edge function code) into ./volumes/backup/files on the host.
+    # We do NOT mount the docker socket, so no container stopping happens —
+    # backups are taken hot. Acceptable for these directories since Postgres
+    # state is captured separately by db-backup.
+    image: offen/docker-volume-backup:v2.43.0
+    restart: unless-stopped
+    environment:
+      BACKUP_CRON_EXPRESSION: ${BACKUP_SCHEDULE}
+      BACKUP_FILENAME: "{{ .Dep.Slug }}-files-%Y-%m-%dT%H-%M-%S.tar.gz"
+      BACKUP_LATEST_SYMLINK: "{{ .Dep.Slug }}-files-latest.tar.gz"
+      BACKUP_PRUNING_PREFIX: "{{ .Dep.Slug }}-files-"
+      BACKUP_RETENTION_DAYS: ${BACKUP_KEEP_DAYS}
+      BACKUP_COMPRESSION: gz
+      BACKUP_STOP_DURING_BACKUP_LABEL: ""
+    volumes:
+      - storage-data:/backup/storage-data:ro
+      - studio-snippets:/backup/studio-snippets:ro
+      - studio-functions:/backup/studio-functions:ro
+      - ./volumes/backup/files:/archive
+{{- end }}
+
 volumes:
   db-data:
   storage-data:
