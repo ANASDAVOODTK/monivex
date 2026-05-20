@@ -85,7 +85,11 @@ function TemplatesPanel() {
     );
   }
 
-  const running = deployments.filter((d) => d.status === 'running').length;
+  // vLLM lives in its own "LLM Models" sidebar tab, so it is excluded from the
+  // generic Templates catalog and deployments table here.
+  const visibleTemplates = templates.filter((t) => t.id !== 'vllm');
+  const visibleDeployments = deployments.filter((d) => d.template_id !== 'vllm');
+  const running = visibleDeployments.filter((d) => d.status === 'running').length;
 
   return (
     <div className="space-y-6">
@@ -101,8 +105,8 @@ function TemplatesPanel() {
         }
         stats={
           <>
-            <Chip label="Templates" value={templates.length.toString()} />
-            <Chip label="Deployments" value={deployments.length.toString()} />
+            <Chip label="Templates" value={visibleTemplates.length.toString()} />
+            <Chip label="Deployments" value={visibleDeployments.length.toString()} />
             <Chip label="Running" value={running.toString()} tone="green" />
             {engine?.version && <Chip label="Compose" value={engine.version} />}
           </>
@@ -130,7 +134,7 @@ function TemplatesPanel() {
       <section>
         <div className="mb-3 text-sm font-semibold text-fg">Catalog</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {templates.map((t) => (
+          {visibleTemplates.map((t) => (
             <TemplateCard key={t.id} serverId={serverId} template={t} />
           ))}
         </div>
@@ -140,7 +144,7 @@ function TemplatesPanel() {
         <div className="mb-3 flex items-center justify-between">
           <div className="text-sm font-semibold text-fg">Deployments</div>
         </div>
-        {deployments.length === 0 ? (
+        {visibleDeployments.length === 0 ? (
           <EmptyState
             title="No deployments yet"
             message="Choose a template above to deploy your first isolated project."
@@ -161,7 +165,7 @@ function TemplatesPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {deployments.map((d) => (
+                  {visibleDeployments.map((d) => (
                     <DeploymentRow
                       key={d.id}
                       serverId={serverId}

@@ -235,10 +235,12 @@ export function EmptyState({
   title,
   message,
   icon,
+  action,
 }: {
   title: string;
   message?: ReactNode;
   icon?: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <div className="card card-pad flex min-h-48 flex-col items-center justify-center text-center">
@@ -247,6 +249,7 @@ export function EmptyState({
       </div>
       <div className="text-sm font-semibold text-fg">{title}</div>
       {message && <div className="mt-2 max-w-md text-sm text-fg-muted">{message}</div>}
+      {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }

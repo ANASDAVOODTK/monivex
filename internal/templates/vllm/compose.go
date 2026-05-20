@@ -69,8 +69,10 @@ services:
       - "8000"
       - "--tensor-parallel-size"
       - {{ yamlQuote .Config.tensor_parallel_size }}
+{{- if .Config.max_model_len }}
       - "--max-model-len"
       - {{ yamlQuote .Config.max_model_len }}
+{{- end }}
       - "--gpu-memory-utilization"
       - {{ yamlQuote .Config.gpu_memory_utilization }}
       - "--served-model-name"

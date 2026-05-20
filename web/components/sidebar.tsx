@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   ArrowLeft,
+  Bot,
   Boxes,
   Container,
   Cpu,
@@ -27,6 +28,7 @@ export const NAV_TEMPLATE = [
   { suffix: '/node-apps', label: 'Node apps', icon: Package },
   { suffix: '/docker', label: 'Docker', icon: Container },
   { suffix: '/templates', label: 'Templates', icon: Boxes },
+  { suffix: '/llm', label: 'LLM Models', icon: Bot },
   { suffix: '/disks', label: 'Disks', icon: HardDrive },
   { suffix: '/logs', label: 'Logs', icon: ScrollText },
   { suffix: '/terminal', label: 'Terminal', icon: Terminal },

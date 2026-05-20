@@ -120,12 +120,15 @@ function DeploymentDetail() {
 
   const isRunning = dep.status === 'running';
   const inFlight = ['deploying', 'starting', 'stopping', 'updating', 'deleting'].includes(dep.status);
+  // vLLM deployments live under the dedicated "LLM Models" tab, not Templates.
+  const isLlm = dep.template_id === 'vllm';
+  const backHref = `/servers/${encodeURIComponent(serverId)}/${isLlm ? 'llm' : 'templates'}`;
 
   return (
     <div className="space-y-6">
-      <Link href={`/servers/${encodeURIComponent(serverId)}/templates`} className="btn-ghost inline-flex w-fit items-center gap-2">
+      <Link href={backHref} className="btn-ghost inline-flex w-fit items-center gap-2">
         <ArrowLeft className="size-4" />
-        Back to templates
+        {isLlm ? 'Back to LLM models' : 'Back to templates'}
       </Link>
 
       <PageHeader

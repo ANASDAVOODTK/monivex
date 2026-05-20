@@ -156,6 +156,19 @@ func TestRenderWithBuildAndExtraArgs(t *testing.T) {
 	}
 }
 
+func TestRenderOmitsMaxModelLenWhenBlank(t *testing.T) {
+	d := New()
+	dep := buildDeployment()
+	delete(dep.Config, "max_model_len")
+	out, err := d.Render(dep)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if strings.Contains(out.Compose, "--max-model-len") {
+		t.Errorf("compose should omit --max-model-len when blank:\n%s", out.Compose)
+	}
+}
+
 func TestRenderIsDeterministic(t *testing.T) {
 	d := New()
 	dep := buildDeployment()
