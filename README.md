@@ -276,7 +276,7 @@ To reset: stop Terminal C and `rm -rf data-agent`. To re-pair without a fresh da
 | `make build`   | `web` + `backend` — produces `bin/server-monitor` (the hub).                         |
 | `make agent`   | Build the headless **agent** binary `bin/server-monitor-agent`.                       |
 | `make run`     | `build` and run with `./config.yaml`.                                                |
-| `make docker`  | Build the Docker image (multi-stage — compiles UI + Go binary inside the image).      |
+| `make docker`  | Build the Docker image (multi-stage — compiles UI + Go binary inside the image). All downloads are HTTPS-only, so it builds on locked-down networks. |
 | `make tidy`    | `go mod tidy`.                                                                       |
 | `make clean`   | Remove `bin/`, `web/.next`, `web/out`, and `cmd/server-monitor/web-out/`.             |
 

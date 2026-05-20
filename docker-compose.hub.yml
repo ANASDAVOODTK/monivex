@@ -40,6 +40,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Show the host OS name instead of the container's.
       - /etc/os-release:/etc/os-release:ro
+      # Use the host's timezone for timestamps.
+      - /etc/localtime:/etc/localtime:ro
       # Log tailing.
       - /var/log:/var/log:ro
 

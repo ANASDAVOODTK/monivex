@@ -9,10 +9,10 @@ COPY web/ ./
 RUN npm run build
 # The export lands in /web/out/.
 
-# ----- Stage 2: build the Go binary -----
+# ----- Stage 2: build the Go binary + fetch the docker CLI -----
 FROM golang:1.25-alpine AS go
 WORKDIR /src
-RUN apk add --no-cache git
+RUN apk add --no-cache git ca-certificates wget
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
@@ -22,35 +22,40 @@ COPY --from=web /web/out/. cmd/server-monitor/web-out/
 ENV CGO_ENABLED=0 GOOS=linux
 RUN go build -trimpath -ldflags="-s -w" -o /out/server-monitor ./cmd/server-monitor
 
+# Static docker CLI + compose plugin, fetched over HTTPS from Docker's
+# official download server and GitHub releases. These are fully static
+# binaries — they run on the glibc (Debian) runtime below. Doing it this way
+# means the image builds on networks that only permit HTTPS (no apt/HTTP).
+ARG DOCKER_VERSION=27.3.1
+ARG COMPOSE_VERSION=2.30.3
+RUN ARCH="$(uname -m)" \
+    && wget -qO /tmp/docker.tgz "https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz" \
+    && tar -xzf /tmp/docker.tgz -C /tmp \
+    && mkdir -p /dist/cli-plugins \
+    && cp /tmp/docker/docker /dist/docker \
+    && wget -qO /dist/cli-plugins/docker-compose "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${ARCH}" \
+    && chmod +x /dist/docker /dist/cli-plugins/docker-compose
+
 # ----- Stage 3: runtime -----
-# Debian (glibc) rather than Alpine so that, on GPU hosts, the NVIDIA driver
-# libraries the container-toolkit injects at runtime (glibc-linked) load
-# cleanly. The image stays small (~80 MB).
+# Debian (glibc) so that, on GPU hosts, the NVIDIA libraries the
+# container-toolkit injects at runtime load cleanly. NO apt is used — every
+# runtime dependency is copied in from the build stages — so the image builds
+# even on networks that only allow HTTPS downloads.
 FROM debian:bookworm-slim
 
-# docker CLI + compose plugin so the templates feature can run
-# `docker compose up -d` against the host socket. ca-certificates for HTTPS
-# to remote agents; tzdata for correct timestamps.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gnupg tzdata \
-    && install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
-    && apt-get purge -y --auto-remove curl gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
+# CA bundle for the binary's outbound HTTPS (hub -> remote agents).
+COPY --from=go /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# docker CLI + compose plugin for the templates feature.
+COPY --from=go /dist/docker /usr/local/bin/docker
+COPY --from=go /dist/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=go /out/server-monitor /usr/local/bin/server-monitor
 COPY deploy/docker-entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/server-monitor \
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/server-monitor /usr/local/bin/docker \
     && mkdir -p /var/lib/server-monitor /etc/server-monitor
 
 # Defaults. Override via env or by mounting /etc/server-monitor/config.yaml.
-# NOTE: the container runs in the host PID + network namespaces (see the
-# compose files), so gopsutil reads the host's /proc directly — no HOST_PROC
-# indirection needed.
+# The container runs in the host PID + network namespaces (see the compose
+# files), so gopsutil reads the host's /proc directly — no HOST_PROC needed.
 ENV SM_MODE=hub \
     SM_BIND=0.0.0.0:8080 \
     SM_DATA_DIR=/var/lib/server-monitor \

@@ -30,6 +30,7 @@ services:
       - ./data:/var/lib/server-monitor
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/os-release:/etc/os-release:ro
+      - /etc/localtime:/etc/localtime:ro
       - /var/log:/var/log:ro
 
     # ---- GPU hosts ----
