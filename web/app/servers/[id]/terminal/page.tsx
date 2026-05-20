@@ -1,13 +1,12 @@
 'use client';
 
-import { useParams } from 'next/navigation';
 import { PageHeader } from '@/components/ui';
 import { Terminal as TerminalIcon } from 'lucide-react';
 import HostShellTerminal from './host-shell-terminal';
+import { useServerId } from '@/lib/use-server-id';
 
 export default function TerminalPage() {
-  const params = useParams<{ id: string | string[] }>();
-  const serverId = (Array.isArray(params?.id) ? params.id[0] : params?.id) ?? '';
+  const serverId = useServerId();
 
   // Fixed-viewport flex column: topbar (h-16 = 64px) + main padding
   // (p-4/p-6/p-8 → 32/48/64px total) leave the rest for content. We size the

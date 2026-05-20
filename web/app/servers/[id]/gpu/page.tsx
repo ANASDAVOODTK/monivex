@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { EmptyState, MetricTile, PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
 import { useServerMetrics } from '@/lib/store';
 import { formatBytes, formatPct } from '@/lib/utils';
@@ -11,8 +11,7 @@ export default function GPUPage() {
 }
 
 function GPUView() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const { current } = useServerMetrics(serverId);
   const gpus = current?.gpus ?? [];
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { EmptyState, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
 import { openLogSocket } from '@/lib/ws';
@@ -12,8 +12,7 @@ export default function LogsPage() {
 }
 
 function Logs() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const [sources, setSources] = useState<string[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [paused, setPaused] = useState(false);

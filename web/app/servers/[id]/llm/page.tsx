@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { useParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
+import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import type { DeploymentSummary, TemplateEngineStatus } from '@/lib/types';
 import { Bot, Loader2, Play, Plus, RefreshCw, Square, Trash2 } from 'lucide-react';
@@ -13,8 +13,7 @@ export default function LlmPage() {
 }
 
 function LlmPanel() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const [deployments, setDeployments] = useState<DeploymentSummary[]>([]);
   const [engine, setEngine] = useState<TemplateEngineStatus | null>(null);
   const [loading, setLoading] = useState(true);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { EmptyState, Notice, PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { NodeApp, NodeAppsResponse } from '@/lib/types';
@@ -13,8 +13,7 @@ export default function NodeAppsPage() {
 }
 
 function NodeAppsPanel() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const [data, setData] = useState<NodeAppsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);

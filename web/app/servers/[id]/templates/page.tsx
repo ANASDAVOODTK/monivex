@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { api } from '@/lib/api';
 import type {
@@ -27,8 +27,7 @@ export default function TemplatesPage() {
 }
 
 function TemplatesPanel() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
   const [engine, setEngine] = useState<TemplateEngineStatus | null>(null);
   const [storageRoot, setStorageRoot] = useState<string>('');

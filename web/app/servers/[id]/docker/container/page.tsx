@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { EmptyState, MetricTile, Notice, PageHeader, StatusBadge } from '@/components/ui';
+import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import { useServerMetrics } from '@/lib/store';
 import { formatBytes, formatPct } from '@/lib/utils';
@@ -18,8 +19,7 @@ export default function DockerContainerPage() {
 }
 
 function DockerContainerDetails() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const searchParams = useSearchParams();
   const containerId = searchParams.get('id') ?? '';
   const { current } = useServerMetrics(serverId);

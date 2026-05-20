@@ -185,15 +185,6 @@ The container's entrypoint translates these into a config file. Mount your own a
 | ✅ | Multi-server — the hub talks to agents exactly like a binary install |
 | ❌ | systemd services collector — DBus isn't proxied into the container, so the page renders empty |
 
-### Build and push your own image
-
-```bash
-docker login
-make docker IMAGE=youruser/monivex TAG=v0.1.0
-make docker-push IMAGE=youruser/monivex TAG=v0.1.0
-# Produces youruser/monivex:v0.1.0 AND youruser/monivex:latest
-```
-
 ---
 
 ## Install from source

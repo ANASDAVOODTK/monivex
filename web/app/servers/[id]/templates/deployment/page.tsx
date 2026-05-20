@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
+import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import type { BackupListing, Deployment, DeploymentEvent, TemplateDefinition } from '@/lib/types';
 import {
@@ -36,8 +37,7 @@ export default function DeploymentPage() {
 }
 
 function DeploymentDetail() {
-  const routeParams = useParams<{ id: string }>();
-  const serverId = (routeParams?.id ?? '') as string;
+  const serverId = useServerId();
   const params = useSearchParams();
   const id = params.get('id') ?? '';
 

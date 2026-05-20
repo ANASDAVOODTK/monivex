@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { Sparkline } from '@/components/sparkline';
 import { HealthRing, InfoPill, MetricTile, ProgressBar, StatusBadge } from '@/components/ui';
 import { useServerMetrics } from '@/lib/store';
@@ -22,8 +22,7 @@ export default function OverviewPage() {
 }
 
 function Overview() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const { current, history, connected } = useServerMetrics(serverId);
 
   const cpuSeries = history.map((h) => ({ t: h.t, v: h.cpu }));

@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Notice, PageHeader } from '@/components/ui';
+import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import {
   VLLM_CUSTOM_PROVIDER,
@@ -26,8 +27,7 @@ export default function DeployLlmPage() {
 }
 
 function DeployForm() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const router = useRouter();
 
   const [provider, setProvider] = useState<string>(VLLM_PROVIDERS[0] ?? '');

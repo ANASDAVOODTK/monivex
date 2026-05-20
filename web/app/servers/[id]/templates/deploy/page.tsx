@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { EmptyState, Notice, PageHeader } from '@/components/ui';
+import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import type { TemplateDefinition, TemplateField } from '@/lib/types';
 import { ArrowLeft, Boxes, Eye, EyeOff, Loader2, Plus, RefreshCw, Rocket, Trash2, Wand2 } from 'lucide-react';
@@ -13,8 +14,7 @@ export default function TemplateDeployPage() {
 }
 
 function DeployForm() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const router = useRouter();
   const searchParams = useSearchParams();
   const templateId = searchParams.get('template') ?? '';

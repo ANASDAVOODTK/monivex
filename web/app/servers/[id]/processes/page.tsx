@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { PageHeader, ProgressBar, StatusBadge } from '@/components/ui';
 import { useServerMetrics } from '@/lib/store';
 import type { Process } from '@/lib/types';
@@ -16,8 +16,7 @@ export default function ProcessesPage() {
 }
 
 function Processes() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const { current } = useServerMetrics(serverId);
   const procs = current?.processes ?? EMPTY_PROCS;
   const [q, setQ] = useState('');

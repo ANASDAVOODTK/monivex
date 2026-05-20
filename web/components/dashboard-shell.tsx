@@ -1,10 +1,11 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { useMetricsSocket } from '@/lib/ws';
+import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import { Activity } from 'lucide-react';
 
@@ -42,9 +43,8 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 }
 
 function Inner({ children }: { children: ReactNode }) {
-  const params = useParams<{ id?: string | string[] }>();
-  const serverId = Array.isArray(params?.id) ? params.id[0] : params?.id;
-  useMetricsSocket(serverId ?? null);
+  const serverId = useServerId();
+  useMetricsSocket(serverId || null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useServerId } from '@/lib/use-server-id';
 import { PageHeader, StatusBadge } from '@/components/ui';
 import { useServerMetrics } from '@/lib/store';
 import type { ServiceUnit } from '@/lib/types';
@@ -15,8 +15,7 @@ export default function ServicesPage() {
 }
 
 function Services() {
-  const params = useParams<{ id: string }>();
-  const serverId = (params?.id ?? '') as string;
+  const serverId = useServerId();
   const { current } = useServerMetrics(serverId);
   const services = current?.services ?? EMPTY_SERVICES;
   const [q, setQ] = useState('');
