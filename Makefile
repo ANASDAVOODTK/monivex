@@ -4,8 +4,8 @@ BIN := bin/server-monitor
 AGENT_BIN := bin/server-monitor-agent
 
 # Docker image. Override on the command line:
-#   make docker IMAGE=youruser/server-monitor TAG=v0.1.0
-IMAGE ?= anasdavoodtk/server-monitor
+#   make docker IMAGE=youruser/monivex TAG=v0.1.0
+IMAGE ?= anasdavoodtk/monivex
 TAG   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 
 all: build

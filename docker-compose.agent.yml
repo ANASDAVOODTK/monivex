@@ -1,17 +1,17 @@
-# Agent — headless monitored host. Run one of these on every machine you
-# want the hub to see.
+# Monivex agent — headless monitored host. Run one of these on every machine
+# you want the hub to see.
 #
 #   docker compose -f docker-compose.agent.yml up -d
-#   docker compose -f docker-compose.agent.yml logs server-monitor | head -40
+#   docker compose -f docker-compose.agent.yml logs monivex | head -40
 #       └─ copy the printed sm://... pairing token and paste it into the
 #          hub's "Add server" form.
 #
 # No UI is served — the API port just has to be reachable from the hub.
 
 services:
-  server-monitor:
-    image: anasdavoodtk/server-monitor:latest
-    container_name: server-monitor-agent
+  monivex:
+    image: anasdavoodtk/monivex:latest
+    container_name: monivex-agent
     restart: unless-stopped
     environment:
       SM_MODE: agent

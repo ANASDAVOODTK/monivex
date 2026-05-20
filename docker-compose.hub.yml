@@ -1,4 +1,4 @@
-# Hub — the dashboard you log into. One of these per fleet.
+# Monivex hub — the dashboard you log into. One of these per fleet.
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #   docker compose -f docker-compose.hub.yml logs -f         # see first-run setup token
@@ -6,9 +6,9 @@
 # Then open  http://<this-host>:8080/setup  to create the admin user.
 
 services:
-  server-monitor:
-    image: anasdavoodtk/server-monitor:latest
-    container_name: server-monitor-hub
+  monivex:
+    image: anasdavoodtk/monivex:latest
+    container_name: monivex-hub
     restart: unless-stopped
     environment:
       SM_MODE: hub
