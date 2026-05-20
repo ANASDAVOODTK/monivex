@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Notice, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
+  VLLM_CUSTOM_PROVIDER,
+  VLLM_GPU_OPTIONS,
   VLLM_PRESETS,
   VLLM_PROVIDERS,
   deriveServedName,
@@ -133,9 +135,12 @@ function DeployForm() {
       setVariantIdx(0);
       applyVariant(first, first.variants[0]);
     } else {
-      setPresetId('');
+      // "Custom" provider — blank manual form, no catalog model.
+      selectPreset('');
     }
   };
+
+  const providerOptions = [...VLLM_PROVIDERS, VLLM_CUSTOM_PROVIDER];
 
   const resolvedImage =
     imageMode === 'custom'
@@ -227,14 +232,14 @@ function DeployForm() {
             title="Choose a model"
             description="Catalog sourced from the community recipes at recipes.vllm.ai."
           />
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Field label="Provider">
               <select
                 className="input"
                 value={provider}
                 onChange={(e) => selectProvider(e.target.value)}
               >
-                {VLLM_PROVIDERS.map((p) => (
+                {providerOptions.map((p) => (
                   <option key={p} value={p}>
                     {p}
                   </option>
@@ -255,7 +260,20 @@ function DeployForm() {
                 ))}
               </select>
             </Field>
-            <Field label="Configuration">
+            <Field label="GPUs" description="Sets --tensor-parallel-size for your hardware.">
+              <select
+                className="input font-mono text-xs"
+                value={tensorParallel}
+                onChange={(e) => setTensorParallel(e.target.value)}
+              >
+                {VLLM_GPU_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === '1' ? 'GPU' : 'GPUs'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Configuration" description="Feature / precision set — pre-fills launch flags.">
               <select
                 className="input"
                 value={variantIdx}
@@ -281,6 +299,7 @@ function DeployForm() {
               <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-fg-subtle">
                 <span>Context: {preset.context.toLocaleString()} tokens</span>
                 <span>Min vLLM: {preset.minVllm}</span>
+                <span>Recommended: {variant?.tensorParallelSize ?? '1'} GPU(s)</span>
                 <span className="font-mono">{variant?.modelId ?? preset.modelId}</span>
               </div>
             </div>
@@ -339,9 +358,12 @@ function DeployForm() {
           </div>
         </section>
 
-        {/* ---- Model + GPU ---- */}
+        {/* ---- Model + resources ---- */}
         <section className="card card-pad space-y-4">
-          <SectionTitle title="Model & GPU" />
+          <SectionTitle
+            title="Model & resources"
+            description="GPU count is set above with the GPUs picker."
+          />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field label="Model ID" required description="HuggingFace repo passed to vLLM as --model.">
               <input
@@ -358,17 +380,6 @@ function DeployForm() {
                 value={served}
                 onChange={(e) => setServed(e.target.value)}
                 placeholder="gemma-4-31B"
-                required
-              />
-            </Field>
-            <Field label="Tensor parallel size" required description="Number of GPUs to shard across.">
-              <input
-                type="number"
-                min={1}
-                max={64}
-                className="input font-mono text-xs"
-                value={tensorParallel}
-                onChange={(e) => setTensorParallel(e.target.value)}
                 required
               />
             </Field>

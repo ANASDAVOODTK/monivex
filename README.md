@@ -1,4 +1,4 @@
-# server-monitor
+# Monivex
 
 Self-hosted, multi-server monitoring dashboard. One Go binary embeds a Next.js UI, collects local metrics (CPU, RAM, disk, network, NVIDIA GPU, processes, systemd services, Docker), tails log files, and exposes everything over HTTP/WebSocket with SQLite for history.
 

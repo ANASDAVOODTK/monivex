@@ -1,10 +1,14 @@
 // vLLM model preset catalog.
 //
 // Curated from the community recipes at recipes.vllm.ai. Each preset is a
-// model with one or more named launch "variants" (a hardware target, a
-// precision, or a feature being enabled). Picking a variant pre-fills the
-// deploy form: model ID, tensor-parallel size, context length, extra CLI
-// args and environment variables.
+// model with one or more named "configurations" — a feature/precision set
+// (FP8, tool calling, MTP speculative decoding, …). Picking a configuration
+// pre-fills the deploy form: model ID, context length, extra CLI args and
+// environment variables.
+//
+// GPU count is NOT baked into a configuration — the deploy form has its own
+// GPUs picker. `tensorParallelSize` here is only the recommended default the
+// picker starts on; the user is free to change it for their own hardware.
 //
 // `args` holds the extra vLLM argv NOT covered by a typed field — one argv
 // per array element (so a flag and its value are two consecutive entries).
@@ -18,10 +22,12 @@ export interface VllmEnvVar {
 }
 
 export interface VllmVariant {
+  /** Feature/precision label — no hardware in here. */
   label: string;
   /** Overrides the preset modelId when the recipe serves a different repo (e.g. an FP4 re-quant). */
   modelId?: string;
   served?: string;
+  /** Recommended GPU count — the GPUs picker starts here but the user can change it. */
   tensorParallelSize?: string;
   maxModelLen?: string;
   gpuMemoryUtilization?: string;
@@ -41,6 +47,12 @@ export interface VllmPreset {
   minVllm: string;
   variants: VllmVariant[];
 }
+
+/** GPU count options for the deploy form's GPUs picker. */
+export const VLLM_GPU_OPTIONS = ['1', '2', '4', '8'] as const;
+
+/** Sentinel provider for fully manual entry (no catalog model). */
+export const VLLM_CUSTOM_PROVIDER = 'Custom';
 
 export const VLLM_PRESETS: VllmPreset[] = [
   // ---- Arcee AI ----
@@ -71,17 +83,16 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.12.0',
     variants: [
       {
-        label: '8xH200 (FP8) — tensor parallel',
+        label: 'FP8 + expert parallel',
         modelId: 'deepseek-ai/DeepSeek-R1-0528',
         tensorParallelSize: '8',
         args: ['--trust-remote-code', '--enable-expert-parallel'],
       },
       {
-        label: '4xB200 (FP4) — NVIDIA re-quant',
+        label: 'FP4 (NVIDIA re-quant)',
         modelId: 'nvidia/DeepSeek-R1-FP4',
         tensorParallelSize: '4',
         args: ['--trust-remote-code', '--enable-expert-parallel'],
-        env: [{ key: 'CUDA_VISIBLE_DEVICES', value: '0,1,2,3' }],
       },
     ],
   },
@@ -95,16 +106,15 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.12.0',
     variants: [
       {
-        label: '8xH200 (FP8) — tensor parallel',
+        label: 'FP8 + expert parallel',
         tensorParallelSize: '8',
         args: ['--trust-remote-code', '--enable-expert-parallel'],
       },
       {
-        label: '4xB200 (FP4) — NVIDIA re-quant',
+        label: 'FP4 (NVIDIA re-quant)',
         modelId: 'nvidia/DeepSeek-V3-FP4',
         tensorParallelSize: '4',
         args: ['--trust-remote-code', '--enable-expert-parallel'],
-        env: [{ key: 'CUDA_VISIBLE_DEVICES', value: '0,1,2,3' }],
       },
     ],
   },
@@ -118,7 +128,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.12.0',
     variants: [
       {
-        label: '8xH200 — tensor parallel',
+        label: 'Expert parallel',
         tensorParallelSize: '8',
         served: 'ds31',
         args: ['--enable-expert-parallel'],
@@ -135,7 +145,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.18.0',
     variants: [
       {
-        label: '8xH200 — full reasoning + tools',
+        label: 'Full reasoning + tools',
         tensorParallelSize: '8',
         args: [
           '--trust-remote-code',
@@ -159,9 +169,9 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.10.1',
     variants: [
-      { label: '21B-A3B — single GPU', tensorParallelSize: '1', args: [] },
+      { label: '21B-A3B (BF16)', tensorParallelSize: '1', args: [] },
       {
-        label: '300B-A47B (FP8) — 8 GPUs',
+        label: '300B-A47B (FP8)',
         modelId: 'baidu/ERNIE-4.5-300B-A47B-PT',
         tensorParallelSize: '8',
         gpuMemoryUtilization: '0.95',
@@ -181,7 +191,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.0',
     variants: [
       {
-        label: 'Tensor Parallel (FP8, 8 GPUs)',
+        label: 'FP8 + tool calling',
         tensorParallelSize: '8',
         args: ['--tool-call-parser', 'glm45', '--reasoning-parser', 'glm45', '--enable-auto-tool-choice'],
       },
@@ -197,12 +207,12 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.0',
     variants: [
       {
-        label: 'Tensor Parallel (FP8, 8 GPUs)',
+        label: 'FP8 + tool calling',
         tensorParallelSize: '8',
         args: ['--tool-call-parser', 'glm45', '--reasoning-parser', 'glm45', '--enable-auto-tool-choice'],
       },
       {
-        label: 'MTP speculative decoding (4 GPUs)',
+        label: 'FP8 + MTP speculative decoding',
         tensorParallelSize: '4',
         args: [
           '--speculative-config.method', 'mtp',
@@ -224,7 +234,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.0',
     variants: [
       {
-        label: 'TP + MTP (FP8, 4xH200)',
+        label: 'FP8 + MTP speculative decoding',
         tensorParallelSize: '4',
         args: [
           '--speculative-config.method', 'mtp',
@@ -246,7 +256,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.16.0',
     variants: [
       {
-        label: 'FP8 8xH200 with MTP',
+        label: 'FP8 + MTP speculative decoding',
         tensorParallelSize: '8',
         served: 'glm-5-fp8',
         args: [
@@ -272,7 +282,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.19.1',
     variants: [
       {
-        label: '1x A100/H100 (BF16)',
+        label: 'Standard (BF16)',
         tensorParallelSize: '1',
         maxModelLen: '32768',
         gpuMemoryUtilization: '0.90',
@@ -304,7 +314,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.19.1',
     variants: [
       {
-        label: '2x A100/H100 (TP=2, BF16)',
+        label: 'Standard (BF16)',
         tensorParallelSize: '2',
         maxModelLen: '32768',
         gpuMemoryUtilization: '0.90',
@@ -335,7 +345,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.19.1',
     variants: [
-      { label: 'Single GPU', tensorParallelSize: '1', maxModelLen: '32768', args: [] },
+      { label: 'Standard (BF16)', tensorParallelSize: '1', maxModelLen: '32768', args: [] },
     ],
   },
   {
@@ -347,7 +357,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.19.1',
     variants: [
-      { label: 'Single GPU', tensorParallelSize: '1', maxModelLen: '32768', args: [] },
+      { label: 'Standard (BF16)', tensorParallelSize: '1', maxModelLen: '32768', args: [] },
     ],
   },
 
@@ -361,7 +371,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 32768,
     minVllm: '0.11.0',
     variants: [
-      { label: 'TP2', tensorParallelSize: '2', args: ['--trust-remote-code'] },
+      { label: 'Standard', tensorParallelSize: '2', args: ['--trust-remote-code'] },
     ],
   },
 
@@ -376,12 +386,12 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.10.0',
     variants: [
       {
-        label: 'BF16 (TP8)',
+        label: 'BF16',
         tensorParallelSize: '8',
         args: ['--trust-remote-code', '--enable-auto-tool-choice', '--reasoning-parser', 'deepseek_r1', '--tool-call-parser', 'internlm'],
       },
       {
-        label: 'FP8 (TP4)',
+        label: 'FP8',
         modelId: 'internlm/Intern-S1-FP8',
         tensorParallelSize: '4',
         args: ['--trust-remote-code', '--enable-auto-tool-choice', '--reasoning-parser', 'deepseek_r1', '--tool-call-parser', 'internlm'],
@@ -413,6 +423,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.6.0',
     variants: [
+      { label: 'Standard', tensorParallelSize: '1', args: [] },
       {
         label: 'EAGLE3 speculative decoding',
         tensorParallelSize: '1',
@@ -435,14 +446,14 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.0',
     variants: [
       {
-        label: 'TP4',
+        label: 'Standard',
         tensorParallelSize: '4',
         served: 'mimo_v2_flash',
         gpuMemoryUtilization: '0.9',
         args: ['--trust-remote-code', '--generation-config', 'vllm'],
       },
       {
-        label: 'TP4 + tool use',
+        label: 'Tool use + reasoning',
         tensorParallelSize: '4',
         served: 'mimo_v2_flash',
         gpuMemoryUtilization: '0.9',
@@ -460,7 +471,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.21.0',
     variants: [
       {
-        label: 'TP4 (reasoning + tools)',
+        label: 'Reasoning + tools',
         tensorParallelSize: '4',
         gpuMemoryUtilization: '0.95',
         args: [
@@ -511,7 +522,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.0',
     variants: [
       {
-        label: 'NVIDIA TP4',
+        label: 'Standard (FP8)',
         tensorParallelSize: '4',
         args: [
           '--tool-call-parser', 'minimax_m2',
@@ -522,7 +533,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
         ],
       },
       {
-        label: 'TP4 + EP (recommended for H100)',
+        label: 'Expert parallel',
         tensorParallelSize: '4',
         args: [
           '--enable-expert-parallel',
@@ -544,7 +555,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.20.0',
     variants: [
       {
-        label: 'NVIDIA TP4',
+        label: 'Standard (FP8)',
         tensorParallelSize: '4',
         args: [
           '--tool-call-parser', 'minimax_m2',
@@ -590,7 +601,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.20.0',
     variants: [
       {
-        label: 'TP2 (FLASH_ATTN_MLA)',
+        label: 'FLASH_ATTN_MLA + tools',
         tensorParallelSize: '2',
         maxModelLen: '262144',
         gpuMemoryUtilization: '0.8',
@@ -615,7 +626,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: 'nightly',
     variants: [
       {
-        label: 'TP8 (nightly)',
+        label: 'Tools + reasoning (nightly)',
         tensorParallelSize: '8',
         nightly: true,
         args: [
@@ -641,12 +652,12 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.12.0',
     variants: [
       {
-        label: 'Low-latency (TP8)',
+        label: 'Low-latency',
         tensorParallelSize: '8',
         args: ['--enable-auto-tool-choice', '--tool-call-parser', 'kimi_k2', '--reasoning-parser', 'kimi_k2', '--trust-remote-code'],
       },
       {
-        label: 'High-throughput (TP8 + DCP8)',
+        label: 'High-throughput (decode context parallel)',
         tensorParallelSize: '8',
         args: [
           '--decode-context-parallel-size', '8',
@@ -667,8 +678,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 1048576,
     minVllm: '0.11.2',
     variants: [
-      { label: '4-GPU Tensor Parallel', tensorParallelSize: '4', maxModelLen: '1048576', args: ['--trust-remote-code'] },
-      { label: '8-GPU Tensor Parallel', tensorParallelSize: '8', maxModelLen: '1048576', args: ['--trust-remote-code'] },
+      { label: '1M context', tensorParallelSize: '4', maxModelLen: '1048576', args: ['--trust-remote-code'] },
     ],
   },
 
@@ -682,7 +692,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.10.1',
     variants: [
-      { label: 'FP8 single GPU', tensorParallelSize: '1', args: ['--trust-remote-code'] },
+      { label: 'FP8', tensorParallelSize: '1', args: ['--trust-remote-code'] },
     ],
   },
   {
@@ -695,7 +705,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.2',
     variants: [
       {
-        label: 'FP8 single GPU',
+        label: 'FP8 + FlashInfer MoE',
         tensorParallelSize: '1',
         args: ['--trust-remote-code', '--async-scheduling', '--kv-cache-dtype', 'fp8'],
         env: [
@@ -716,8 +726,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.10.0',
     variants: [
-      { label: 'Single / multi GPU', tensorParallelSize: '1', args: [] },
-      { label: 'TP4', tensorParallelSize: '4', args: [] },
+      { label: 'Standard (MXFP4)', tensorParallelSize: '1', args: [] },
     ],
   },
   {
@@ -729,7 +738,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     context: 131072,
     minVllm: '0.10.0',
     variants: [
-      { label: 'Standard', tensorParallelSize: '1', args: [] },
+      { label: 'Standard (MXFP4)', tensorParallelSize: '1', args: [] },
     ],
   },
 
@@ -744,7 +753,7 @@ export const VLLM_PRESETS: VllmPreset[] = [
     minVllm: '0.11.0',
     variants: [
       {
-        label: 'Single GPU (MTP)',
+        label: 'FP8 + MTP speculative decoding',
         tensorParallelSize: '1',
         maxModelLen: '65536',
         gpuMemoryUtilization: '0.5',
