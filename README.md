@@ -573,7 +573,7 @@ Good first contributions: new app-template drivers, additional vLLM model preset
 
 ## License
 
-See the [`LICENSE`](LICENSE) file for details.
+Monivex is released under the **MIT License** — see [`LICENSE`](LICENSE).
 
 ## Project layout
 
@@ -611,4 +611,8 @@ Makefile                   build orchestration
 
 ---
 
-<p align="center">Built with Go and Next.js · <a href="https://hub.docker.com/r/anasdavoodtk/monivex">anasdavoodtk/monivex</a> on Docker Hub</p>
+<p align="center">
+  Built with Go and Next.js ·
+  <a href="https://github.com/ANASDAVOODTK/server-monitor">GitHub</a> ·
+  <a href="https://hub.docker.com/r/anasdavoodtk/monivex">Docker Hub</a>
+</p>
