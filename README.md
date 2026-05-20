@@ -84,11 +84,18 @@ Key points:
 
 ## Quick start with Docker
 
-The published image — [`anasdavoodtk/monivex`](https://hub.docker.com/r/anasdavoodtk/monivex) — runs as either a hub or an agent. Pick the matching compose file, set your host's Docker GID, and `docker compose up -d`.
+The published image — [`anasdavoodtk/monivex`](https://hub.docker.com/r/anasdavoodtk/monivex) — runs as either a hub or an agent.
+
+> **A container is isolated from its host.** By default it only sees its *own*
+> processes, network and metrics — which is why a naive `docker run` shows an
+> almost-empty dashboard. To monitor the *host*, the container shares the
+> host's PID and network namespaces and runs privileged. This is exactly how
+> netdata / node-exporter / cAdvisor run. The compose files below already do
+> this — just `docker compose up -d`.
 
 ### Hub host (the one you log into)
 
-Save this as `docker-compose.yml`:
+Save this as `docker-compose.yml` (or use the repo's `docker-compose.hub.yml`):
 
 ```yaml
 services:
@@ -96,67 +103,50 @@ services:
     image: anasdavoodtk/monivex:latest
     container_name: monivex-hub
     restart: unless-stopped
+    pid: host              # see host processes
+    network_mode: host     # see host network + bind on the host directly
+    privileged: true       # read every /proc entry + the docker socket
     environment:
       SM_MODE: hub
       SM_BIND: 0.0.0.0:8080
-      SM_LOG_PATHS: /host/var/log/syslog,/host/var/log/auth.log
-    ports:
-      - "8080:8080"
+      SM_LOG_PATHS: /var/log/syslog,/var/log/auth.log
     volumes:
       - ./data:/var/lib/server-monitor
       - /var/run/docker.sock:/var/run/docker.sock
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-      - /var/log:/host/var/log:ro
-    group_add:
-      - "999"   # <-- replace with: getent group docker | cut -d: -f3
+      - /etc/os-release:/etc/os-release:ro
+      - /var/log:/var/log:ro
 ```
 
 Then:
 
 ```bash
-# Find your host's Docker GID and put it in group_add above
-getent group docker | cut -d: -f3
-
 docker compose up -d
 docker compose logs -f monivex      # grab the first-run setup token
 ```
 
 Open `http://<your-host>:8080/setup`, paste the token, create the admin user. Done.
 
-> A ready-made `docker-compose.hub.yml` ships in this repo if you'd rather not copy the YAML.
+Note: with `network_mode: host` there is **no `ports:` mapping** — `SM_BIND` is the host port directly, and there is **no `group_add`** to fiddle with (the container runs as root, so it can always read the docker socket).
 
 ### Every monitored host (agent)
 
-```yaml
-services:
-  monivex:
-    image: anasdavoodtk/monivex:latest
-    container_name: monivex-agent
-    restart: unless-stopped
-    environment:
-      SM_MODE: agent
-      SM_BIND: 0.0.0.0:8090
-    ports:
-      - "8090:8090"
-    volumes:
-      - ./data:/var/lib/server-monitor
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-      - /var/log:/host/var/log:ro
-    group_add:
-      - "999"   # <-- getent group docker | cut -d: -f3
-```
+Use the repo's `docker-compose.agent.yml` (same shape, `SM_MODE: agent`, port `8090`):
 
 ```bash
-docker compose up -d
-docker compose logs monivex | head -40
+docker compose -f docker-compose.agent.yml up -d
+docker compose -f docker-compose.agent.yml logs monivex | head -40
 ```
 
-The log prints an `sm://...` line — paste it into the hub UI's **Add server** form. That's it. (Repo file: `docker-compose.agent.yml`.)
+The log prints an `sm://...` line — paste it into the hub UI's **Add server** form. That's it.
+
+### GPU hosts
+
+GPU metrics need the host's NVIDIA stack inside the container:
+
+1. Install [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host.
+2. Uncomment the `deploy.resources.reservations.devices` block in the compose file.
+
+The toolkit injects the host's `nvidia-smi` + NVML libraries at runtime — the image is Debian-based so those glibc libraries load cleanly.
 
 ### Environment variables
 
@@ -165,24 +155,26 @@ The container's entrypoint translates these into a config file. Mount your own a
 | Variable                     | Default                             | Notes                                            |
 | ---------------------------- | ----------------------------------- | ------------------------------------------------ |
 | `SM_MODE`                    | `hub`                               | `hub` or `agent`.                                |
-| `SM_BIND`                    | `0.0.0.0:8080`                      | Listen address inside the container.             |
+| `SM_BIND`                    | `0.0.0.0:8080`                      | Listen address — the host port (network_mode: host). |
 | `SM_DATA_DIR`                | `/var/lib/server-monitor`           | Matches the volume mount.                        |
 | `SM_DOCKER_SOCKET`           | `/var/run/docker.sock`              | Where the agent finds the host's Docker socket.  |
 | `SM_TEMPLATES_ROOT`          | `/var/lib/server-monitor/templates` | Where rendered Compose files live.               |
 | `SM_LOG_PATHS`               | empty                               | Comma-separated allowlist for the Logs page.     |
 | `SM_TLS_CERT` / `SM_TLS_KEY` | empty                               | Paths inside the container to PEM files.         |
-| `HOST_PROC` / `SYS` / `ETC`  | `/host/proc` etc.                   | Set automatically; matches the mounts above.     |
 
 ### What works inside Docker
 
 | | |
 |---|---|
-| ✅ | CPU / RAM / disk / network / process metrics (via the `/host/proc` + `/host/sys` mounts) |
-| ✅ | Docker page + container start/stop/restart, exec terminal, container logs (via the socket mount) |
+| ✅ | CPU / RAM / network / load — the host's, via `pid: host` + `network_mode: host` |
+| ✅ | Processes — the full host process list |
+| ✅ | Docker page + container start/stop/restart, exec terminal, container logs |
 | ✅ | App templates — Supabase, Qdrant, Custom — the image ships the `docker` CLI + Compose plugin |
 | ✅ | LLM Models — vLLM deploys (needs an NVIDIA GPU + container toolkit on the host) |
+| ✅ | GPU metrics — with `nvidia-container-toolkit` + the `deploy` block uncommented |
 | ✅ | Log tailing for anything under the `/var/log` bind mount |
 | ✅ | Multi-server — the hub talks to agents exactly like a binary install |
+| ⚠️ | Disk usage shows the **container's** filesystems, not the host's — Docker doesn't share the mount namespace. For exact host disk metrics, run the binary directly (see *Install from source* → *Production deployment*). |
 | ❌ | systemd services collector — DBus isn't proxied into the container, so the page renders empty |
 
 ---
@@ -534,18 +526,21 @@ proxy_read_timeout 600s;
 
 **GPU metrics missing** — verify `nvidia-smi` works as the running user. Set `gpu.backend: "nvidia-smi"` if NVML isn't picked up.
 
-**Docker containers not showing / "permission denied" connecting to the Docker API** — the running user can't read the socket.
+**Docker containers not showing / "permission denied" connecting to the Docker API**
 
 ```bash
-# Inside Docker: find the host's docker GID and add it to compose's group_add.
-getent group docker | cut -d: -f3
-
 # Bare metal: add the service user to the docker group.
 sudo usermod -aG docker <user>      # systemd installer user is "server-monitor"
 sudo systemctl restart server-monitor
 ```
 
+In Docker this should not happen — the container runs as root and mounts the
+socket, so it always has access. If it does, confirm the compose file mounts
+`/var/run/docker.sock:/var/run/docker.sock` and that the path exists on the host.
+
 The same fix resolves template / LLM deploys failing with `permission denied while trying to connect to the docker API` — they shell out to `docker compose` and need identical socket access.
+
+**Docker dashboard shows the container, not the host (empty process list, no host network, wrong OS)** — the compose file is missing the host-namespace settings. The container must have `pid: host`, `network_mode: host`, and `privileged: true` (plus the `/var/run/docker.sock`, `/etc/os-release` and `/var/log` mounts). Use the `docker-compose.hub.yml` / `docker-compose.agent.yml` from this repo — they are already configured correctly. After fixing, `docker compose up -d` to recreate the container.
 
 **Lost setup token** — if you have no users yet, stop the service, delete `<data_dir>/monitor.db`, and restart. A fresh token is printed.
 

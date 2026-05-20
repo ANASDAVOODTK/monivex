@@ -1,30 +1,43 @@
-# Monivex agent — headless monitored host. Run one of these on every machine
-# you want the hub to see.
+# Monivex agent — headless monitored host. Run one on every machine you want
+# the hub to see.
 #
 #   docker compose -f docker-compose.agent.yml up -d
 #   docker compose -f docker-compose.agent.yml logs monivex | head -40
-#       └─ copy the printed sm://... pairing token and paste it into the
-#          hub's "Add server" form.
+#       └─ copy the printed sm://... pairing token, paste it into the hub's
+#          "Add server" form.
 #
 # No UI is served — the API port just has to be reachable from the hub.
+#
+# Shares the host PID + network namespaces so it monitors the *host*, not the
+# container. See docker-compose.hub.yml for the rationale.
 
 services:
   monivex:
     image: anasdavoodtk/monivex:latest
     container_name: monivex-agent
     restart: unless-stopped
+
+    pid: host
+    network_mode: host
+    privileged: true
+
     environment:
       SM_MODE: agent
       SM_BIND: 0.0.0.0:8090
-      SM_LOG_PATHS: /host/var/log/syslog
-    ports:
-      - "8090:8090"
+      SM_LOG_PATHS: /var/log/syslog
+
     volumes:
       - ./data:/var/lib/server-monitor
       - /var/run/docker.sock:/var/run/docker.sock
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-      - /var/log:/host/var/log:ro
-    group_add:
-      - "999"   # <-- replace with `getent group docker | cut -d: -f3` from the host
+      - /etc/os-release:/etc/os-release:ro
+      - /var/log:/var/log:ro
+
+    # ---- GPU hosts ----
+    # Install nvidia-container-toolkit on the host, then uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]

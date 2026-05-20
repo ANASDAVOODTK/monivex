@@ -23,35 +23,39 @@ ENV CGO_ENABLED=0 GOOS=linux
 RUN go build -trimpath -ldflags="-s -w" -o /out/server-monitor ./cmd/server-monitor
 
 # ----- Stage 3: runtime -----
-FROM alpine:3.20
+# Debian (glibc) rather than Alpine so that, on GPU hosts, the NVIDIA driver
+# libraries the container-toolkit injects at runtime (glibc-linked) load
+# cleanly. The image stays small (~80 MB).
+FROM debian:bookworm-slim
 
-# docker-cli + compose plugin so the templates feature (docker compose up -d)
-# works against the host socket mounted at /var/run/docker.sock.
-# tzdata + ca-certificates for HTTPS calls to remote agents.
-RUN apk add --no-cache \
-      ca-certificates \
-      tzdata \
-      docker-cli \
-      docker-cli-compose \
-      su-exec \
-    && addgroup -S -g 1000 monitor \
-    && adduser -S -u 1000 -G monitor -h /var/lib/server-monitor monitor \
-    && mkdir -p /var/lib/server-monitor /etc/server-monitor \
-    && chown -R monitor:monitor /var/lib/server-monitor
+# docker CLI + compose plugin so the templates feature can run
+# `docker compose up -d` against the host socket. ca-certificates for HTTPS
+# to remote agents; tzdata for correct timestamps.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg tzdata \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && apt-get purge -y --auto-remove curl gnupg \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=go /out/server-monitor /usr/local/bin/server-monitor
 COPY deploy/docker-entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/server-monitor
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/server-monitor \
+    && mkdir -p /var/lib/server-monitor /etc/server-monitor
 
-# Default bind. Override via SM_BIND env or by mounting a config.yaml.
+# Defaults. Override via env or by mounting /etc/server-monitor/config.yaml.
+# NOTE: the container runs in the host PID + network namespaces (see the
+# compose files), so gopsutil reads the host's /proc directly — no HOST_PROC
+# indirection needed.
 ENV SM_MODE=hub \
     SM_BIND=0.0.0.0:8080 \
     SM_DATA_DIR=/var/lib/server-monitor \
     SM_DOCKER_SOCKET=/var/run/docker.sock \
-    SM_TEMPLATES_ROOT=/var/lib/server-monitor/templates \
-    HOST_PROC=/host/proc \
-    HOST_SYS=/host/sys \
-    HOST_ETC=/host/etc
+    SM_TEMPLATES_ROOT=/var/lib/server-monitor/templates
 
 EXPOSE 8080
 VOLUME ["/var/lib/server-monitor"]

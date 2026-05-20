@@ -65,10 +65,10 @@ fi
 
 mkdir -p "${SM_DATA_DIR}" || true
 
-# Drop privileges if we started as root and a `monitor` user exists.
-if [ "$(id -u)" = "0" ] && id monitor >/dev/null 2>&1; then
-  chown -R monitor:monitor "${SM_DATA_DIR}" 2>/dev/null || true
-  exec su-exec monitor /usr/local/bin/server-monitor --config "$CFG" "$@"
-fi
-
+# The container runs as root on purpose: a host monitor needs to read every
+# process under /proc and the docker socket. This is the norm for monitoring
+# containers (netdata, node-exporter, cAdvisor all run as root). The container
+# is already trusted — it shares the host PID namespace and mounts the docker
+# socket — so a separate unprivileged user buys nothing and only reintroduces
+# the docker-GID matching problem.
 exec /usr/local/bin/server-monitor --config "$CFG" "$@"

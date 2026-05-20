@@ -1,40 +1,56 @@
-# Monivex hub — the dashboard you log into. One of these per fleet.
+# Monivex hub — the dashboard you log into. One per fleet.
 #
 #   docker compose -f docker-compose.hub.yml up -d
-#   docker compose -f docker-compose.hub.yml logs -f         # see first-run setup token
+#   docker compose -f docker-compose.hub.yml logs -f      # see first-run setup token
 #
 # Then open  http://<this-host>:8080/setup  to create the admin user.
+#
+# Why pid/network host + privileged?  A container is isolated from its host by
+# default — it would only see its OWN processes, network and metrics. To
+# monitor the *host* the container has to share the host's namespaces. This is
+# exactly how netdata / node-exporter / cAdvisor run.
 
 services:
   monivex:
     image: anasdavoodtk/monivex:latest
     container_name: monivex-hub
     restart: unless-stopped
+
+    # See the host's processes (not just the container's one).
+    pid: host
+    # See the host's network interfaces + traffic, and bind on the host
+    # directly (no docker port mapping needed — SM_BIND is the host port).
+    network_mode: host
+    # Read every process under /proc and the docker socket without fighting
+    # capabilities. Trim to `cap_add: [SYS_PTRACE]` if you prefer.
+    privileged: true
+
     environment:
       SM_MODE: hub
       SM_BIND: 0.0.0.0:8080
-      # Comma-separated list of host paths the UI may tail.
-      # Add more to /host/var/log mount below if you change this.
-      SM_LOG_PATHS: /host/var/log/syslog,/host/var/log/auth.log
-    ports:
-      - "8080:8080"
-    # Persistent state: SQLite DB, JWT secret, API keys, template deployments.
+      # Host log files the Logs page may tail. Real host paths — /var/log is
+      # mounted 1:1 below. (Debian/Ubuntu use syslog/auth.log; RHEL-family
+      # use /var/log/messages and /var/log/secure.)
+      SM_LOG_PATHS: /var/log/syslog,/var/log/auth.log
+
     volumes:
+      # Persistent state: SQLite DB, JWT secret, API keys, template deployments.
       - ./data:/var/lib/server-monitor
-
-      # Talk to the host's Docker. Needed for the Docker page + templates.
+      # Host Docker — powers the Docker page, container controls, and templates.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Show the host OS name instead of the container's.
+      - /etc/os-release:/etc/os-release:ro
+      # Log tailing.
+      - /var/log:/var/log:ro
 
-      # gopsutil reads /proc and /sys; bind-mount the host's so we see the
-      # host, not the container.
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-
-      # Log tailing (read-only). Adjust SM_LOG_PATHS to match.
-      - /var/log:/host/var/log:ro
-    # The container's "monitor" user (uid 1000) needs to read the docker
-    # socket. Either chown the socket OR add the host's docker GID here.
-    # Find it with:  getent group docker | cut -d: -f3
-    group_add:
-      - "999"   # <-- replace with your host's docker GID
+    # ---- GPU hosts ----
+    # 1) Install nvidia-container-toolkit on the host.
+    # 2) Uncomment the block below.
+    # The toolkit injects the host's nvidia-smi + NVML libraries at runtime.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
