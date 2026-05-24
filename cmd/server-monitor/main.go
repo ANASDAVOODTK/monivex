@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ANASDAVOODTK/server-monitor/internal/aggregator"
+	"github.com/ANASDAVOODTK/server-monitor/internal/agentboot"
 	"github.com/ANASDAVOODTK/server-monitor/internal/api"
 	"github.com/ANASDAVOODTK/server-monitor/internal/auth"
 	"github.com/ANASDAVOODTK/server-monitor/internal/bindfix"
@@ -39,7 +40,7 @@ func main() {
 		}
 	}
 
-	cfgPath := flag.String("config", "config.yaml", "Path to config file")
+	cfgPath := flag.String("config", config.DefaultPath(), "Path to config file (defaults to $SM_CONFIG or ./config.yaml)")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -69,6 +70,11 @@ func main() {
 		// Agents never need a login (no UI), so we don't bother the operator
 		// with the first-run banner there.
 		authSvc.PrintFirstRunBanner()
+	} else {
+		// In agent mode, mint + print a one-time pairing token on first boot
+		// so the operator can paste it straight into a hub. On subsequent
+		// boots a hint is printed instead.
+		agentboot.PrintBootstrapPairing(ctx, st, authSvc, cfg)
 	}
 
 	h := hub.New(cfg, st)

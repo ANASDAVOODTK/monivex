@@ -435,7 +435,12 @@ function AddServerDialog({
           The agent prints a <code className="rounded bg-black/40 px-1 font-mono">sm://...</code> token
           on first boot — paste it below. If you missed it, run on the agent host:
           <pre className="mt-2 overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-fg">
-{`server-monitor-agent pair http://<agent-host>:8080`}
+{`# bare metal:
+server-monitor pair http://<agent-host>:8080
+
+# Docker:
+docker compose exec monivex \\
+  server-monitor pair http://<agent-host>:8080`}
           </pre>
         </div>
 
@@ -515,8 +520,13 @@ function AddServerDialog({
             )}
             {/rejected the api key|unauthorized/i.test(err) && (
               <div className="mt-2 text-[11px] text-rose-300/80">
-                Tip: the API key in this token has been revoked. Generate a new one on the agent
-                with <code className="font-mono">server-monitor-agent pair &lt;url&gt;</code>.
+                Tip: the API key in this token isn't valid for the agent. Mint a fresh one on
+                the agent host with{' '}
+                <code className="font-mono">server-monitor pair &lt;url&gt;</code>
+                {' '}(or{' '}
+                <code className="font-mono">docker compose exec monivex server-monitor pair &lt;url&gt;</code>
+                {' '}if the agent runs in Docker — needs image ≥ v0.2.2 so the exec'd command opens
+                the same SQLite database as the daemon).
               </div>
             )}
           </div>

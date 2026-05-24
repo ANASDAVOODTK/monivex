@@ -126,6 +126,12 @@ docker compose logs -f monivex      # grab the first-run setup token
 
 Open `http://<your-host>:8080/setup`, paste the token, create the admin user. Done.
 
+in agent also you can do 
+```bash
+sudo docker compose exec monivex \
+  server-monitor pair http://<this-host-ip>:8090
+```
+
 Note: with `network_mode: host` there is **no `ports:` mapping** — `SM_BIND` is the host port directly, and there is **no `group_add`** to fiddle with (the container runs as root, so it can always read the docker socket).
 
 ### Every monitored host (agent)
@@ -176,6 +182,7 @@ The container's entrypoint translates these into a config file. Mount your own a
 | ✅ | Multi-server — the hub talks to agents exactly like a binary install |
 | ⚠️ | Disk usage shows the **container's** filesystems, not the host's — Docker doesn't share the mount namespace. For exact host disk metrics, run the binary directly (see *Install from source* → *Production deployment*). |
 | ❌ | systemd services collector — DBus isn't proxied into the container, so the page renders empty |
+| ❌ | PM2 / Node apps — the container has no Node.js, and PM2 stores its daemon socket in the host user's `~/.pm2/`. For PM2 monitoring, run the bare binary on the host instead (see *Install from source*). |
 
 ---
 

@@ -60,7 +60,8 @@ ENV SM_MODE=hub \
     SM_BIND=0.0.0.0:8080 \
     SM_DATA_DIR=/var/lib/server-monitor \
     SM_DOCKER_SOCKET=/var/run/docker.sock \
-    SM_TEMPLATES_ROOT=/var/lib/server-monitor/templates
+    SM_TEMPLATES_ROOT=/var/lib/server-monitor/templates \
+    SM_CONFIG=/etc/server-monitor/config.yaml
 
 EXPOSE 8080
 VOLUME ["/var/lib/server-monitor"]

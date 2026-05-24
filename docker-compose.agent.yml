@@ -33,12 +33,15 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /var/log:/var/log:ro
 
-    # ---- GPU hosts ----
-    # Install nvidia-container-toolkit on the host, then uncomment:
-     deploy:
-       resources:
-         reservations:
-           devices:
-             - driver: nvidia
-               count: all
-               capabilities: [gpu]
+ # ---- GPU hosts ----
+    # 1) Install nvidia-container-toolkit on the host.
+    # 2) Uncomment the block below.
+    # The toolkit injects the host's nvidia-smi + NVML libraries at runtime.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+

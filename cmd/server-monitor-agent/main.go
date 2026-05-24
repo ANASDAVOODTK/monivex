@@ -53,7 +53,7 @@ func main() {
 		}
 	}
 
-	cfgPath := flag.String("config", "config.yaml", "Path to config file")
+	cfgPath := flag.String("config", config.DefaultPath(), "Path to config file (defaults to $SM_CONFIG or ./config.yaml)")
 	flag.Usage = printUsage
 	flag.Parse()
 

@@ -20,7 +20,7 @@ import (
 // running for this to work — both processes can share the SQLite DB safely.
 func runPair(args []string) int {
 	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
-	cfgPath := fs.String("config", "config.yaml", "Path to config file")
+	cfgPath := fs.String("config", config.DefaultPath(), "Path to config file (defaults to $SM_CONFIG or ./config.yaml)")
 	name := fs.String("name", "", "Display name for the generated API key (defaults to host + timestamp)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: server-monitor-agent pair <agent-url> [flags]")
