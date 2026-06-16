@@ -94,6 +94,8 @@ One systemd service, native Linux binary, no daemons or containers in the loop. 
 - `git` and `make`
 - Optional: Docker (for the Docker page, app templates, vLLM deploys), NVIDIA driver + `nvidia-smi` (for GPU metrics)
 
+> Don't have Go or Node.js installed? See [Installing the build tools](#installing-the-build-tools) at the bottom of this section for copy-paste commands per distro.
+
 ### One-liner install (hub)
 
 ```bash
@@ -146,6 +148,52 @@ sudo systemctl restart server-monitor
 ```
 
 (Your config and data dir stay where they are — only the binary is replaced.)
+
+### Installing the build tools
+
+Distro packages usually ship Go and Node.js that are too old. These commands install **fresh** versions from the official sources.
+
+**Debian / Ubuntu**
+
+```bash
+# git + make
+sudo apt update && sudo apt install -y git make curl
+
+# Go (latest 1.25.x — adjust the version if a newer release is out)
+curl -fsSL https://go.dev/dl/go1.25.4.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
+source /etc/profile.d/go.sh
+go version    # → go version go1.25.x linux/amd64
+
+# Node.js 20 (NodeSource)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v       # → v20.x.x
+npm -v
+```
+
+**RHEL / AlmaLinux / Rocky / Fedora**
+
+```bash
+sudo dnf install -y git make curl tar
+
+# Go
+curl -fsSL https://go.dev/dl/go1.25.4.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
+source /etc/profile.d/go.sh
+
+# Node.js 20
+curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+sudo dnf install -y nodejs
+```
+
+**Arch**
+
+```bash
+sudo pacman -S --needed git make go nodejs npm
+```
+
+> On ARM64 hosts (Raspberry Pi, AWS Graviton, Apple-silicon VMs) swap `linux-amd64` for `linux-arm64` in the Go download URL.
 
 ---
 
