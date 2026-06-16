@@ -41,14 +41,17 @@ run: build
 #   make build                         # as your user (normal PATH)
 #   sudo make install                  # hub (default)
 #   sudo make install-agent            # agent (headless, listens on :8090)
+#
+# Scripts are invoked via `bash …` so they run even if their +x bit got lost
+# (e.g. unpacked from a non-POSIX filesystem).
 install:
-	./deploy/install.sh
+	bash ./deploy/install.sh
 
 install-agent:
-	./deploy/install.sh --agent
+	bash ./deploy/install.sh --agent
 
 uninstall:
-	./deploy/uninstall.sh
+	bash ./deploy/uninstall.sh
 
 dev:
 	@echo "Run in two terminals:"
