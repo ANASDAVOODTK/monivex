@@ -1,4 +1,4 @@
-.PHONY: all web build backend agent run dev clean tidy docker docker-push
+.PHONY: all web build backend agent run dev clean tidy install install-agent uninstall docker docker-push
 
 BIN := bin/server-monitor
 AGENT_BIN := bin/server-monitor-agent
@@ -33,6 +33,18 @@ agent:
 
 run: build
 	./$(BIN) --config ./config.yaml
+
+# Install as a systemd service. Run as root after `make build`.
+#   sudo make install                  # hub (default)
+#   sudo make install-agent            # agent (headless, listens on :8090)
+install: build
+	./deploy/install.sh
+
+install-agent: build
+	./deploy/install.sh --agent
+
+uninstall:
+	./deploy/uninstall.sh
 
 dev:
 	@echo "Run in two terminals:"

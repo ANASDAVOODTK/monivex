@@ -24,12 +24,13 @@ Run the same binary on every machine you want to monitor. Designate one instance
 - [Highlights](#highlights)
 - [Features](#features)
 - [Architecture](#architecture)
-- [Quick start with Docker](#quick-start-with-docker)
-- [Install from source](#install-from-source)
-- [Production deployment](#production-deployment)
+- [Install on a server (recommended)](#install-on-a-server-recommended)
+- [Add more servers (multi-host)](#add-more-servers-multi-host)
+- [TLS](#tls)
 - [Configuration](#configuration)
 - [App templates](#app-templates)
 - [LLM models (vLLM)](#llm-models-vllm)
+- [Development setup](#development-setup)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -40,7 +41,7 @@ Run the same binary on every machine you want to monitor. Designate one instance
 
 ## Highlights
 
-- **One binary, whole fleet.** No agents to compile separately, no external database, no message broker. Drop the binary (or container) on each host and pair it to the hub with a single copy-paste token.
+- **One binary, whole fleet.** No agents to compile separately, no external database, no message broker. `make build && sudo make install` on each host, then pair to the hub with a single copy-paste token.
 - **Live everything.** Per-core CPU, memory, disks, network rates, GPU, processes, systemd units and Docker containers stream over WebSocket and persist to embedded SQLite.
 - **Operate, don't just watch.** Start/stop/restart containers, open an interactive `exec` terminal in the browser, tail logs, manage PM2 apps.
 - **One-click stacks.** Deploy Supabase, Qdrant, or your own pasted Compose file as isolated projects — auto-generated secrets, port probing, lifecycle controls.
@@ -71,10 +72,10 @@ Run the same binary on every machine you want to monitor. Designate one instance
 
 Key points:
 
-- **Two roles, same packages.** The repo builds two binaries:
-  - **Hub** (`server-monitor`) — UI + servers registry + aggregator + templates + collectors. **You only need ONE of these** on the network.
-  - **Agent** (`server-monitor-agent`) — same functionality minus the UI, registry, and aggregator. It still has Docker exec, container control, log tailing, PM2 controls and template deploys — everything the hub proxies to it. Install this on every machine you only want to monitor.
-  - Don't want two binaries? Run the hub everywhere and set `mode: "agent"` in each agent's `config.yaml` — same runtime behavior, larger binary. The single Docker image (`anasdavoodtk/monivex`) does exactly this via the `SM_MODE` variable.
+- **Two roles, same packages.** Pick one per host with `mode:` in `config.yaml`:
+  - `mode: hub` (default) — runs the full dashboard: UI + servers registry + aggregator + templates + local collectors. **You only need ONE of these** on the network.
+  - `mode: agent` — headless: same collectors, Docker controls, log tailing, PM2 and template deploys the hub proxies to it, but no UI / registry / aggregator. Install this on every machine you only want to monitor.
+  - There's also a smaller dedicated binary `server-monitor-agent` (`make agent`) for size-conscious agent deployments.
 - **Pull-based.** The hub opens a long-lived WebSocket to each agent's `/ws/metrics`. Agents never need to reach the hub.
 - **One-line pairing.** Each agent prints an `sm://...` token on first boot — paste it into the hub's **Add server** form. The token wraps URL + API key in one string.
 - **Per-server API keys.** Each agent issues revocable API keys (secrets shown once). The hub stores them encrypted with AES-GCM derived from its JWT secret.
@@ -82,246 +83,136 @@ Key points:
 
 ---
 
-## Quick start with Docker
+## Install on a server (recommended)
 
-The published image — [`anasdavoodtk/monivex`](https://hub.docker.com/r/anasdavoodtk/monivex) — runs as either a hub or an agent.
+One systemd service, native Linux binary, no daemons or containers in the loop. Works on any modern distro.
 
-> **A container is isolated from its host.** By default it only sees its *own*
-> processes, network and metrics — which is why a naive `docker run` shows an
-> almost-empty dashboard. To monitor the *host*, the container shares the
-> host's PID and network namespaces and runs privileged. This is exactly how
-> netdata / node-exporter / cAdvisor run. The compose files below already do
-> this — just `docker compose up -d`.
+### Prerequisites
 
-### Hub host (the one you log into)
+- Linux with `systemd`
+- **Go ≥ 1.25** and **Node.js ≥ 20** with `npm` (build-time only — not needed once the binary is built)
+- `git` and `make`
+- Optional: Docker (for the Docker page, app templates, vLLM deploys), NVIDIA driver + `nvidia-smi` (for GPU metrics)
 
-Save this as `docker-compose.yml` (or use the repo's `docker-compose.hub.yml`):
-
-```yaml
-services:
-  monivex:
-    image: anasdavoodtk/monivex:latest
-    container_name: monivex-hub
-    restart: unless-stopped
-    pid: host              # see host processes
-    network_mode: host     # see host network + bind on the host directly
-    privileged: true       # read every /proc entry + the docker socket
-    environment:
-      SM_MODE: hub
-      SM_BIND: 0.0.0.0:8080
-      SM_LOG_PATHS: /var/log/syslog,/var/log/auth.log
-    volumes:
-      - ./data:/var/lib/server-monitor
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /etc/os-release:/etc/os-release:ro
-      - /var/log:/var/log:ro
-```
-
-Then:
-
-```bash
-docker compose up -d
-docker compose logs -f monivex      # grab the first-run setup token
-```
-
-Open `http://<your-host>:8080/setup`, paste the token, create the admin user. Done.
-
-in agent also you can do 
-```bash
-sudo docker compose exec monivex \
-  server-monitor pair http://<this-host-ip>:8090
-```
-
-Note: with `network_mode: host` there is **no `ports:` mapping** — `SM_BIND` is the host port directly, and there is **no `group_add`** to fiddle with (the container runs as root, so it can always read the docker socket).
-
-### Every monitored host (agent)
-
-Use the repo's `docker-compose.agent.yml` (same shape, `SM_MODE: agent`, port `8090`):
-
-```bash
-docker compose -f docker-compose.agent.yml up -d
-docker compose -f docker-compose.agent.yml logs monivex | head -40
-```
-
-The log prints an `sm://...` line — paste it into the hub UI's **Add server** form. That's it.
-
-### GPU hosts
-
-GPU metrics need the host's NVIDIA stack inside the container:
-
-1. Install [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host.
-2. Uncomment the `deploy.resources.reservations.devices` block in the compose file.
-
-The toolkit injects the host's `nvidia-smi` + NVML libraries at runtime — the image is Debian-based so those glibc libraries load cleanly.
-
-### Environment variables
-
-The container's entrypoint translates these into a config file. Mount your own at `/etc/server-monitor/config.yaml` to bypass them entirely.
-
-| Variable                     | Default                             | Notes                                            |
-| ---------------------------- | ----------------------------------- | ------------------------------------------------ |
-| `SM_MODE`                    | `hub`                               | `hub` or `agent`.                                |
-| `SM_BIND`                    | `0.0.0.0:8080`                      | Listen address — the host port (network_mode: host). |
-| `SM_DATA_DIR`                | `/var/lib/server-monitor`           | Matches the volume mount.                        |
-| `SM_DOCKER_SOCKET`           | `/var/run/docker.sock`              | Where the agent finds the host's Docker socket.  |
-| `SM_TEMPLATES_ROOT`          | `/var/lib/server-monitor/templates` | Where rendered Compose files live.               |
-| `SM_LOG_PATHS`               | empty                               | Comma-separated allowlist for the Logs page.     |
-| `SM_TLS_CERT` / `SM_TLS_KEY` | empty                               | Paths inside the container to PEM files.         |
-
-### What works inside Docker
-
-| | |
-|---|---|
-| ✅ | CPU / RAM / network / load — the host's, via `pid: host` + `network_mode: host` |
-| ✅ | Processes — the full host process list |
-| ✅ | Docker page + container start/stop/restart, exec terminal, container logs |
-| ✅ | App templates — Supabase, Qdrant, Custom — the image ships the `docker` CLI + Compose plugin |
-| ✅ | LLM Models — vLLM deploys (needs an NVIDIA GPU + container toolkit on the host) |
-| ✅ | GPU metrics — with `nvidia-container-toolkit` + the `deploy` block uncommented |
-| ✅ | Log tailing for anything under the `/var/log` bind mount |
-| ✅ | Multi-server — the hub talks to agents exactly like a binary install |
-| ⚠️ | Disk usage shows the **container's** filesystems, not the host's — Docker doesn't share the mount namespace. For exact host disk metrics, run the binary directly (see *Install from source* → *Production deployment*). |
-| ❌ | systemd services collector — DBus isn't proxied into the container, so the page renders empty |
-| ❌ | PM2 / Node apps — the container has no Node.js, and PM2 stores its daemon socket in the host user's `~/.pm2/`. For PM2 monitoring, run the bare binary on the host instead (see *Install from source*). |
-
----
-
-## Install from source
-
-### Requirements
-
-- **Go ≥ 1.25**
-- **Node.js ≥ 20** and npm (the UI is built with Next.js 16)
-- Docker (optional — for the Docker collector, templates and LLM deploys)
-- NVIDIA + `nvidia-smi` or NVML (optional — for GPU metrics and vLLM)
-
-### 1. Clone and install dependencies
+### One-liner install (hub)
 
 ```bash
 git clone https://github.com/ANASDAVOODTK/server-monitor.git
 cd server-monitor
-
-go mod tidy                       # backend
-cd web && npm install && cd ..    # frontend
-```
-
-### 2. Run with hot reload (two terminals)
-
-```bash
-# Terminal A — Next.js dev server on :3000
-cd web && npm run dev
-#   Proxies /api/* and /ws/* to http://localhost:8080 via next.config.mjs
-
-# Terminal B — Go backend on :8080
-go run ./cmd/server-monitor --config ./config.example.yaml
-```
-
-Open `http://localhost:3000`. The Go binary prints a **one-time setup token** to its log — use it at `/setup` to create the first admin user. The dev frontend reaches the dev backend through Next.js rewrites, so cookies and WebSockets work without CORS headaches.
-
-### 3. Production-style build (single binary)
-
-```bash
 make build
-./bin/server-monitor --config ./config.example.yaml
+sudo make install
 ```
 
-This runs `npm run build` to produce a static export under `web/out/`, copies it into `cmd/server-monitor/web-out/`, and compiles one Go binary that serves the UI itself on port 8080.
+The installer creates the `server-monitor` system user, drops the binary at `/opt/server-monitor/`, writes `/etc/server-monitor/config.yaml`, installs the systemd unit, starts the service, **waits for the first-run banner, and prints the setup token right there**:
 
-### 4. Multi-server in development (hub + local agent)
+```
+==> Hub installed.
 
-Exercise the full hub/agent flow on one machine — no remote hosts needed.
+    Open the dashboard:   http://10.241.8.32:8080/setup
+    One-time setup token: b13f866ee7816f66e06bfcd9e000b57bb4eccb333a09cb87
 
-**A. Start the hub** (frontend + backend, normal dev flow):
+    (Paste the token at /setup, create an admin user, you're in.)
+```
+
+If you ever lose the token, the same line is still in the journal: `sudo journalctl -u server-monitor -n 100 --no-pager | grep -A1 'one-time token:'`
+
+### Where things live
+
+| What                       | Path                                          |
+| -------------------------- | --------------------------------------------- |
+| Binary                     | `/opt/server-monitor/server-monitor`          |
+| Config                     | `/etc/server-monitor/config.yaml`             |
+| Data (SQLite, templates)   | `/var/lib/server-monitor/`                    |
+| systemd unit               | `/etc/systemd/system/server-monitor.service`  |
+| Logs                       | `journalctl -u server-monitor`                |
+
+### Day-2 commands
 
 ```bash
-cd web && npm run dev                                       # Terminal A — :3000
-go run ./cmd/server-monitor --config ./config.example.yaml  # Terminal B — :8080
+sudo systemctl status server-monitor       # service health
+sudo systemctl restart server-monitor      # apply a config change
+sudo journalctl -u server-monitor -f       # tail logs
+sudo make uninstall                        # remove cleanly
 ```
 
-Complete first-run setup at `http://localhost:3000/setup`. The server list shows one card (the hub itself).
-
-**B. Start a second instance as the agent** on `:8090` with its own data dir:
+### Upgrading
 
 ```bash
-mkdir -p ./data-agent
-cat > ./config.agent.yaml <<EOF
-mode: agent
-server:
-  bind: "0.0.0.0:8090"
-data_dir: "./data-agent"
-logs:
-  allowed_paths: []
-docker:
-  enabled: true
-EOF
-
-go run ./cmd/server-monitor-agent --config ./config.agent.yaml   # Terminal C
+cd server-monitor
+git pull
+make build
+sudo install -m 0755 bin/server-monitor /opt/server-monitor/server-monitor
+sudo systemctl restart server-monitor
 ```
 
-The agent prints a pairing token on first boot:
-
-```
-=================================================================
-Agent first-run — paste this into the hub's 'Add server' form:
-
-  sm://eyJ2IjoxLCJ1cmwiOiJodHRwOi8vMTcyLjE4LjIwMS43Mjo4MDkwIi...
-
-Agent URL:   http://172.18.201.72:8090
-=================================================================
-```
-
-**C. Add it on the hub UI**: open `http://localhost:3000`, click **Add server**, paste the `sm://...` line, **Save**. The hub streams the agent's snapshot within ~1s.
-
-To reset: stop Terminal C and `rm -rf data-agent`. To re-pair without a fresh data dir, run `go run ./cmd/server-monitor-agent pair http://<your-ip>:8090 --config ./config.agent.yaml`.
-
-### Make targets
-
-| Target         | What it does                                                                         |
-| -------------- | ------------------------------------------------------------------------------------ |
-| `make web`     | Build the Next.js static export and copy it under `cmd/server-monitor/`.              |
-| `make backend` | Build the **hub** binary using whatever is currently in `web-out/`.                  |
-| `make build`   | `web` + `backend` — produces `bin/server-monitor` (the hub).                         |
-| `make agent`   | Build the headless **agent** binary `bin/server-monitor-agent`.                       |
-| `make run`     | `build` and run with `./config.yaml`.                                                |
-| `make docker`  | Build the Docker image (multi-stage — compiles UI + Go binary inside the image). All downloads are HTTPS-only, so it builds on locked-down networks. |
-| `make tidy`    | `go mod tidy`.                                                                       |
-| `make clean`   | Remove `bin/`, `web/.next`, `web/out`, and `cmd/server-monitor/web-out/`.             |
+(Your config and data dir stay where they are — only the binary is replaced.)
 
 ---
 
-## Production deployment
+## Add more servers (multi-host)
 
-### Single server
+Pick **one** machine as the **hub** (where you log in to see the fleet). Every other monitored machine runs an **agent**.
 
-Monivex runs fine on one host with no remote agents — the dashboard simply lists that one server.
+### 1. On every monitored host — install in agent mode
+
+Same repo, one extra flag:
 
 ```bash
+git clone https://github.com/ANASDAVOODTK/server-monitor.git
+cd server-monitor
 make build
-sudo ./deploy/install.sh
+sudo make install-agent
 ```
 
-The installer:
+The installer sets `mode: agent`, binds the service on **:8090** (so a hub and an agent can coexist on the same box if you ever want that), waits for the agent's first-run output, and prints the pairing token directly:
 
-1. Creates the `server-monitor` system user.
-2. Adds it to the `docker` group if Docker is installed.
-3. Installs the binary to `/opt/server-monitor/server-monitor`.
-4. Installs a sample config at `/etc/server-monitor/config.yaml` (`data_dir` → `/var/lib/server-monitor`).
-5. Installs and enables the systemd unit `/etc/systemd/system/server-monitor.service`.
+```
+==> Agent installed.
 
-Check status and grab the first-run setup token:
+    Paste this into the hub's 'Add server' form:
 
-```bash
-sudo systemctl status server-monitor
-sudo journalctl -u server-monitor -n 100        # find the token line
+    sm://eyJ2IjoxLCJ1cmwiOiJodHRwOi8vMTAuMC4wLjU6ODA5MCIsImtleSI6...
+
+    Agent URL: http://10.0.0.5:8090
 ```
 
-Open `http://<host>:8080/setup` and paste the token. Uninstall with `sudo ./deploy/uninstall.sh`.
+### 2. On the hub UI — paste the token
 
-### TLS
+Open the hub's dashboard, click **Add server**, paste the `sm://...` line, **Save**. The hub opens a WebSocket to the agent and a live card appears with CPU/memory/uptime.
+
+> The pairing token is generated automatically on first boot. If you missed it, run on the agent host:
+>
+> ```bash
+> server-monitor pair http://<agent-ip>:8090
+> ```
+>
+> The old key keeps working until you revoke it under the hub's **Settings → API keys**.
+
+### Network requirements
+
+| Direction     | Port         | Protocol    |
+| ------------- | ------------ | ----------- |
+| Hub → Agent   | Agent port   | HTTPS + WSS |
+| Browser → Hub | Hub port     | HTTPS + WSS |
+
+Agents do **not** need to reach the hub — only the hub initiates connections.
+
+### How proxying works
+
+When you open `/servers/<id>/processes` on the hub:
+
+- For the **self** server, the hub reads from its in-process Hub directly.
+- For a **remote** server, the hub proxies the request to `<base_url>/api/v1/processes` with `X-API-Key` and streams the response back. WebSockets (`/ws/servers/<id>/metrics`, `/logs`, Docker `exec` and `logs`) are proxied frame-by-frame in both directions.
+
+The hub also caches the latest snapshot from each agent so the list page loads without per-card round trips.
+
+---
+
+## TLS
 
 For anything beyond localhost, terminate TLS.
 
-**A. Built-in TLS** — in `config.yaml`:
+**A. Built-in TLS** — set in `/etc/server-monitor/config.yaml`:
 
 ```yaml
 server:
@@ -339,64 +230,6 @@ monitor.example.com {
   reverse_proxy 127.0.0.1:8080
 }
 ```
-
-### Multi-server (hub + agents)
-
-Pick one machine as the **hub** (your dashboard). Every other monitored machine runs an **agent**.
-
-```bash
-# On the hub host
-make build
-sudo ./deploy/install.sh                       # systemd, full dashboard on :8080
-
-# On every monitored host
-make agent
-sudo install -m 0755 bin/server-monitor-agent /usr/local/bin/
-sudo install -m 0644 config.example.yaml /etc/server-monitor.yaml
-sudo /usr/local/bin/server-monitor-agent --config /etc/server-monitor.yaml
-```
-
-> Short on time? Install the full hub binary everywhere and set `mode: "agent"` in each agent's `config.yaml` — same runtime behavior, larger binary.
-
-**Enroll each agent.** On an agent's first boot the log prints:
-
-```
-=================================================================
-Agent first-run — paste this into the hub's 'Add server' form:
-
-  sm://eyJ2IjoxLCJ1cmwiOiJodHRwOi8vMTAuMC4wLjU6ODA4MCIsImtleSI6InNtX...
-
-Agent URL:   http://10.0.0.5:8080
-=================================================================
-```
-
-On the hub UI: visit `/`, click **Add server**, paste the `sm://...` line, **Save**. The hub opens a WebSocket and the card appears with live metrics.
-
-The agent's URL is derived from its `bind` setting:
-
-- `bind: "0.0.0.0:8080"` → the agent picks its primary outbound LAN IP (recommended).
-- `bind: "<hostname>:8080"` → uses that hostname.
-- `bind: "127.0.0.1:8080"` → **auto-upgraded** to `0.0.0.0:<port>` (loopback isn't reachable from the hub).
-
-Missed the token? Run `server-monitor-agent pair http://<agent-host>:8080` on the agent to mint a fresh one — the old key keeps working until you revoke it under the hub's **Settings → API keys**.
-
-### How proxying works
-
-When you open `/servers/<id>/processes` on the hub:
-
-- For the **self** server, the hub reads from its in-process Hub directly.
-- For a **remote** server, the hub proxies the request to `<base_url>/api/v1/processes` with `X-API-Key`, streams the response back, and reuses a per-server HTTP client.
-
-WebSockets (`/ws/servers/<id>/metrics`, `/logs`, Docker `exec` and `logs`) are proxied frame-by-frame both ways. The hub also caches the latest snapshot from each agent so the list page loads without per-card round trips.
-
-### Network requirements
-
-| Direction     | Port         | Protocol    |
-| ------------- | ------------ | ----------- |
-| Hub → Agent   | Agent's port | HTTPS + WSS |
-| Browser → Hub | Hub's port   | HTTPS + WSS |
-
-Agents do **not** need to reach the hub. Only the hub initiates connections.
 
 ---
 
@@ -502,6 +335,68 @@ Deploying a model writes a `docker-compose.yml` (and optional `Dockerfile`) just
 
 ---
 
+## Development setup
+
+For contributors. The deployment flow above doesn't need any of this — it just runs `make build && sudo make install`.
+
+### Requirements
+
+- **Go ≥ 1.25**, **Node.js ≥ 20** with `npm`, `git`, `make`.
+
+### Hot reload (two terminals)
+
+```bash
+git clone https://github.com/ANASDAVOODTK/server-monitor.git
+cd server-monitor
+go mod tidy
+cd web && npm install && cd ..
+
+# Terminal A — Next.js dev server on :3000 (proxies /api and /ws to :8080)
+cd web && npm run dev
+
+# Terminal B — Go backend on :8080
+go run ./cmd/server-monitor --config ./config.example.yaml
+```
+
+Open <http://localhost:3000>, paste the one-time setup token printed in Terminal B, create the admin user.
+
+### Local multi-server test (no remote machines)
+
+Run a second instance as an agent on `:8090` with its own data dir:
+
+```bash
+mkdir -p ./data-agent
+cat > ./config.agent.yaml <<EOF
+mode: agent
+server:
+  bind: "0.0.0.0:8090"
+data_dir: "./data-agent"
+EOF
+
+go run ./cmd/server-monitor --config ./config.agent.yaml
+```
+
+The agent prints an `sm://...` token on first boot — paste it into the hub UI's **Add server** form.
+
+### Make targets
+
+| Target               | What it does                                                                |
+| -------------------- | --------------------------------------------------------------------------- |
+| `make build`         | Build the Next.js export + the hub binary at `bin/server-monitor`.          |
+| `make agent`         | Build the slim headless agent binary `bin/server-monitor-agent`.            |
+| `make backend`       | Just the Go binary (use when running `npm run dev` separately).             |
+| `make web`           | Just the Next.js static export.                                             |
+| `make run`           | `build` and run with `./config.yaml`.                                       |
+| `sudo make install`  | Install as a systemd hub service.                                           |
+| `sudo make install-agent` | Install as a systemd agent service (`mode: agent`, port 8090).         |
+| `sudo make uninstall`| Remove the systemd unit, binary, config and data dir.                       |
+| `make tidy`          | `go mod tidy`.                                                              |
+| `make clean`         | Remove `bin/`, `web/.next`, `web/out`, and `cmd/server-monitor/web-out/`.   |
+
+> The repo also ships a `Dockerfile` and `docker-compose.*.yml` for advanced users who prefer containers, but **the recommended deployment is the native systemd install above** — it gives you the full host view (processes, network, disks, GPU, PM2, systemd units) without the container-isolation caveats.
+
+---
+
 ## Security
 
 - **LAN-first.** Bind to `127.0.0.1` if only localhost should reach Monivex. For anything else, terminate TLS (built-in or reverse proxy).
@@ -533,23 +428,23 @@ proxy_read_timeout 600s;
 
 **GPU metrics missing** — verify `nvidia-smi` works as the running user. Set `gpu.backend: "nvidia-smi"` if NVML isn't picked up.
 
-**Docker containers not showing / "permission denied" connecting to the Docker API**
+**Docker containers not showing / "permission denied" connecting to the Docker API** — the `server-monitor` service user needs to be in the host's `docker` group:
 
 ```bash
-# Bare metal: add the service user to the docker group.
-sudo usermod -aG docker <user>      # systemd installer user is "server-monitor"
+sudo usermod -aG docker server-monitor
 sudo systemctl restart server-monitor
 ```
 
-In Docker this should not happen — the container runs as root and mounts the
-socket, so it always has access. If it does, confirm the compose file mounts
-`/var/run/docker.sock:/var/run/docker.sock` and that the path exists on the host.
+The systemd installer does this automatically when Docker is already installed, so this only bites you if you install Docker **after** Monivex. The same fix unblocks template / LLM deploys that fail with `permission denied while trying to connect to the docker API`.
 
-The same fix resolves template / LLM deploys failing with `permission denied while trying to connect to the docker API` — they shell out to `docker compose` and need identical socket access.
+**Lost setup token** — if you have no users yet:
 
-**Docker dashboard shows the container, not the host (empty process list, no host network, wrong OS)** — the compose file is missing the host-namespace settings. The container must have `pid: host`, `network_mode: host`, and `privileged: true` (plus the `/var/run/docker.sock`, `/etc/os-release` and `/var/log` mounts). Use the `docker-compose.hub.yml` / `docker-compose.agent.yml` from this repo — they are already configured correctly. After fixing, `docker compose up -d` to recreate the container.
-
-**Lost setup token** — if you have no users yet, stop the service, delete `<data_dir>/monitor.db`, and restart. A fresh token is printed.
+```bash
+sudo systemctl stop server-monitor
+sudo rm /var/lib/server-monitor/monitor.db
+sudo systemctl start server-monitor
+sudo journalctl -u server-monitor -n 100 --no-pager | grep -A1 'one-time token:'
+```
 
 ---
 
