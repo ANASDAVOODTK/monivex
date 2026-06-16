@@ -102,10 +102,17 @@ PORT="${PORT:-8080}"
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 HOST_IP="${HOST_IP:-<this-host>}"
 
+# Disable errexit + pipefail inside the polling loop: it's *expected* that grep
+# returns non-zero on the first few iterations (the token may not be in the
+# journal yet). Without this, `set -euo pipefail` from the top of the script
+# would abort the install on the first miss.
+set +e
+set +o pipefail
+
 TOKEN=""
 for _ in $(seq 1 20); do   # 20 × 0.5s = 10s ceiling
   sleep 0.5
-  JOURNAL="$(journalctl -u server-monitor -n 300 --no-pager 2>/dev/null || true)"
+  JOURNAL="$(journalctl -u server-monitor -n 300 --no-pager 2>/dev/null)"
   if [[ "$MODE" == "hub" ]]; then
     # The setup banner is:
     #   one-time token:
@@ -118,6 +125,9 @@ for _ in $(seq 1 20); do   # 20 × 0.5s = 10s ceiling
   fi
   [[ -n "$TOKEN" ]] && break
 done
+
+set -e
+set -o pipefail
 
 echo
 if [[ "$MODE" == "hub" ]]; then
