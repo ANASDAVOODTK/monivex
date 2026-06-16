@@ -5,7 +5,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/anasdavoodtk/monivex?logo=docker&label=Docker%20pulls)](https://hub.docker.com/r/anasdavoodtk/monivex)
 [![Docker Image](https://img.shields.io/docker/image-size/anasdavoodtk/monivex/latest?logo=docker&label=image%20size)](https://hub.docker.com/r/anasdavoodtk/monivex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![GitHub](https://img.shields.io/badge/GitHub-repo-181717?logo=github)](https://github.com/ANASDAVOODTK/server-monitor)
+[![GitHub](https://img.shields.io/badge/GitHub-repo-181717?logo=github)](https://github.com/ANASDAVOODTK/monivex)
 ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)
 
@@ -99,8 +99,8 @@ One systemd service, native Linux binary, no daemons or containers in the loop. 
 ### One-liner install (hub)
 
 ```bash
-git clone https://github.com/ANASDAVOODTK/server-monitor.git
-cd server-monitor
+git clone https://github.com/ANASDAVOODTK/monivex.git
+cd monivex
 make build
 sudo make install
 ```
@@ -140,7 +140,7 @@ sudo make uninstall                        # remove cleanly
 ### Upgrading
 
 ```bash
-cd server-monitor
+cd monivex
 git pull
 make build
 sudo install -m 0755 bin/server-monitor /opt/server-monitor/server-monitor
@@ -206,8 +206,8 @@ Pick **one** machine as the **hub** (where you log in to see the fleet). Every o
 Same repo, one extra flag:
 
 ```bash
-git clone https://github.com/ANASDAVOODTK/server-monitor.git
-cd server-monitor
+git clone https://github.com/ANASDAVOODTK/monivex.git
+cd monivex
 make build
 sudo make install-agent
 ```
@@ -394,8 +394,8 @@ For contributors. The deployment flow above doesn't need any of this — it just
 ### Hot reload (two terminals)
 
 ```bash
-git clone https://github.com/ANASDAVOODTK/server-monitor.git
-cd server-monitor
+git clone https://github.com/ANASDAVOODTK/monivex.git
+cd monivex
 go mod tidy
 cd web && npm install && cd ..
 
@@ -549,6 +549,6 @@ Makefile                   build orchestration
 
 <p align="center">
   Built with Go and Next.js ·
-  <a href="https://github.com/ANASDAVOODTK/server-monitor">GitHub</a> ·
+  <a href="https://github.com/ANASDAVOODTK/monivex">GitHub</a> ·
   <a href="https://hub.docker.com/r/anasdavoodtk/monivex">Docker Hub</a>
 </p>
