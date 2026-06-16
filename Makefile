@@ -34,13 +34,17 @@ agent:
 run: build
 	./$(BIN) --config ./config.yaml
 
-# Install as a systemd service. Run as root after `make build`.
+# Install as a systemd service. Run AFTER `make build` (we deliberately do
+# NOT depend on `build` here — `sudo make install` would otherwise re-run the
+# Node + Go build under sudo's stripped PATH, which breaks on systems where
+# npm/node come from nvm).
+#   make build                         # as your user (normal PATH)
 #   sudo make install                  # hub (default)
 #   sudo make install-agent            # agent (headless, listens on :8090)
-install: build
+install:
 	./deploy/install.sh
 
-install-agent: build
+install-agent:
 	./deploy/install.sh --agent
 
 uninstall:

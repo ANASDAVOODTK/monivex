@@ -96,14 +96,17 @@ One systemd service, native Linux binary, no daemons or containers in the loop. 
 
 > Don't have Go or Node.js installed? See [Installing the build tools](#installing-the-build-tools) at the bottom of this section for copy-paste commands per distro.
 
-### One-liner install (hub)
+### Install (hub)
 
 ```bash
 git clone https://github.com/ANASDAVOODTK/monivex.git
 cd monivex
-make build
-sudo make install
+
+make build           # compiles UI + binary  (run as your user)
+sudo make install    # installs systemd service  (run as root)
 ```
+
+> **Run `make build` as your regular user, not under `sudo`.** `sudo` resets `PATH`, and if you installed Node via nvm (`/root/.nvm/...` or `/home/<you>/.nvm/...`) the npm binary disappears from that stripped PATH. If you're already root in your shell, just drop the `sudo` from both commands.
 
 The installer creates the `server-monitor` system user, drops the binary at `/opt/server-monitor/`, writes `/etc/server-monitor/config.yaml`, installs the systemd unit, starts the service, **waits for the first-run banner, and prints the setup token right there**:
 
@@ -484,6 +487,15 @@ sudo systemctl restart server-monitor
 ```
 
 The systemd installer does this automatically when Docker is already installed, so this only bites you if you install Docker **after** Monivex. The same fix unblocks template / LLM deploys that fail with `permission denied while trying to connect to the docker API`.
+
+**`sudo make install` fails with `npm: not found`** — `sudo` resets `PATH` to a minimal `secure_path` that doesn't include nvm's bin directory. Don't run the build under sudo:
+
+```bash
+make build           # as your user (or as root without sudo) — needs npm + go in PATH
+sudo make install    # as root — only copies files, no npm needed
+```
+
+If you're already root in your shell, drop the `sudo` from both commands.
 
 **Lost setup token** — if you have no users yet:
 
