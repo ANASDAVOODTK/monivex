@@ -104,9 +104,60 @@ ok "git, make, curl, tar present"
 install_go() {
   info "Installing Go ${GO_VERSION}"
   local tmp; tmp="$(mktemp -d)"
-  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "$tmp/go.tgz"
+  local tarball="$tmp/go.tgz"
+  local file="go${GO_VERSION}.linux-${ARCH}.tar.gz"
+  local ok=0
+
+  # Try each source in turn. Any single one being reachable is enough — some
+  # hosts block Google CDNs, others block the China mirror, etc.
+  local sources=()
+  [[ -n "${GO_URL:-}" ]] && sources+=("$GO_URL")
+  sources+=(
+    "https://go.dev/dl/${file}"
+    "https://golang.google.cn/dl/${file}"
+    "https://storage.googleapis.com/golang/${file}"
+  )
+
+  for url in "${sources[@]}"; do
+    info "Fetching Go from $url"
+    if curl -fsSL --connect-timeout 10 --max-time 300 "$url" -o "$tarball" 2>/dev/null; then
+      ok=1; break
+    else
+      warn "  → unreachable"
+    fi
+  done
+
+  # Final fallback: a tarball the operator dropped on the machine.
+  if (( ! ok )); then
+    for candidate in "./${file}" "/tmp/${file}" "/tmp/go.tgz"; do
+      if [[ -f "$candidate" ]]; then
+        info "Using local Go tarball at $candidate"
+        cp "$candidate" "$tarball"
+        ok=1; break
+      fi
+    done
+  fi
+
+  if (( ! ok )); then
+    cat >&2 <<EOF
+Could not fetch Go ${GO_VERSION} from any known mirror, and no local tarball
+was found. Options:
+
+  1. Download it on a machine that has internet access:
+       https://go.dev/dl/${file}
+     …then transfer it to this host and re-run:
+       cp ${file} /tmp/${file}
+       curl -fsSL https://raw.githubusercontent.com/ANASDAVOODTK/monivex/main/install.sh | sudo bash
+
+  2. Point the installer at a reachable URL:
+       GO_URL="https://your-mirror.example/${file}" \\
+         bash -c "\$(curl -fsSL https://raw.githubusercontent.com/ANASDAVOODTK/monivex/main/install.sh)"
+EOF
+    die "Go download failed."
+  fi
+
   rm -rf /usr/local/go
-  tar -C /usr/local -xzf "$tmp/go.tgz"
+  tar -C /usr/local -xzf "$tarball"
   rm -rf "$tmp"
   ln -sf /usr/local/go/bin/go     /usr/local/bin/go
   ln -sf /usr/local/go/bin/gofmt  /usr/local/bin/gofmt
