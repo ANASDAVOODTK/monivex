@@ -87,6 +87,37 @@ command -v systemctl >/dev/null || die "systemd is required."
 PM="$(detect_pm)"
 ARCH="$(arch_tag)"
 
+# `sudo` resets PATH to its `secure_path`, so nvm-installed node/npm and
+# `/usr/local/go/bin` disappear even though the invoking user has them. Add
+# the common locations back BEFORE we probe for go/node — otherwise the
+# script will decide they're missing and try to (re)install them.
+augment_path() {
+  local d
+  for d in "$@"; do
+    if [[ -d "$d" && ":$PATH:" != *":$d:"* ]]; then
+      export PATH="$d:$PATH"
+    fi
+  done
+}
+
+augment_path /usr/local/go/bin /usr/local/bin /snap/bin
+
+# Search invoker's home + root's home for nvm / .local/bin.
+home_dirs=("/root")
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+  invoker_home="$(getent passwd "$SUDO_USER" | cut -d: -f6 || true)"
+  [[ -n "$invoker_home" ]] && home_dirs+=("$invoker_home")
+fi
+
+for h in "${home_dirs[@]}"; do
+  augment_path "$h/.local/bin"
+  if [[ -d "$h/.nvm/versions/node" ]]; then
+    # Pick the newest nvm-managed Node version available.
+    latest="$(ls -1 "$h/.nvm/versions/node" 2>/dev/null | sort -V | tail -1 || true)"
+    [[ -n "$latest" ]] && augment_path "$h/.nvm/versions/node/$latest/bin"
+  fi
+done
+
 info "Monivex bootstrap installer  (mode: $MODE, distro pkg: $PM, arch: $ARCH)"
 
 # ---------- 1. base tools ----------
@@ -180,12 +211,19 @@ fi
 # ---------- 3. Node.js ----------
 install_node() {
   info "Installing Node.js ${NODE_MAJOR}.x"
+  # Cap apt/dnf downloads with a timeout so restricted networks that hang on
+  # the distro's HTTP mirrors fail fast instead of sitting there for an hour.
   case "$PM" in
     apt)
-      curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null 2>&1
-      pm_install nodejs ;;
+      timeout 30 curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null 2>&1 \
+        || die "NodeSource setup failed. If your Node is at ~/.nvm/… re-run and see [install failure guidance]."
+      DEBIAN_FRONTEND=noninteractive apt-get \
+        -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+        install -y --no-install-recommends nodejs >/dev/null \
+        || die "apt install nodejs failed (network / repo issue)." ;;
     dnf|yum)
-      curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null 2>&1
+      timeout 30 curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null 2>&1 \
+        || die "NodeSource setup failed."
       pm_install nodejs ;;
     pacman)
       pm_install nodejs npm ;;
