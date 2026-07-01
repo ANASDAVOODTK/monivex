@@ -117,8 +117,11 @@ for _ in $(seq 1 20); do   # 20 × 0.5s = 10s ceiling
     # The setup banner is:
     #   one-time token:
     #     <48-char hex>
+    # …but journalctl prefixes every line with `<date> <host> <svc>[pid]:`,
+    # so we grab the line after the banner and use `grep -oE` to pluck out
+    # just the hex substring anywhere on that line.
     TOKEN="$(printf '%s\n' "$JOURNAL" | awk '/one-time token:/ {getline; print}' \
-             | tr -d ' \t\r' | grep -E '^[a-f0-9]{40,}$' | tail -1)"
+             | grep -oE '[a-f0-9]{40,}' | tail -1)"
   else
     # The agent prints a self-contained sm://... line.
     TOKEN="$(printf '%s\n' "$JOURNAL" | grep -oE 'sm://[A-Za-z0-9_-]+' | tail -1)"
