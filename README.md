@@ -85,30 +85,56 @@ Key points:
 
 ## Install on a server (recommended)
 
-One systemd service, native Linux binary, no daemons or containers in the loop. Works on any modern distro.
+One systemd service, native Linux binary. One command installs everything — including Go and Node.js if they're missing. Works on any modern distro (Debian, Ubuntu, RHEL, AlmaLinux, Rocky, Fedora, Arch).
 
-### Prerequisites
+### One-liner install
 
-- Linux with `systemd`
-- **Go ≥ 1.25** and **Node.js ≥ 20** with `npm` (build-time only — not needed once the binary is built)
-- `git` and `make`
-- Optional: Docker (for the Docker page, app templates, vLLM deploys), NVIDIA driver + `nvidia-smi` (for GPU metrics)
+**Hub host** (the dashboard you log into — you only need one):
 
-> Don't have Go or Node.js installed? See [Installing the build tools](#installing-the-build-tools) at the bottom of this section for copy-paste commands per distro.
+```bash
+curl -fsSL https://raw.githubusercontent.com/ANASDAVOODTK/monivex/main/install.sh | sudo bash
+```
 
-### Install (hub)
+**Agent host** (any machine you want the hub to see — repeat on each):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ANASDAVOODTK/monivex/main/install.sh | sudo bash -s -- --agent
+```
+
+That's it. The bootstrap script:
+
+1. Detects your package manager (`apt` / `dnf` / `pacman`).
+2. Installs `git`, `make`, `curl`, `tar` if any are missing.
+3. Installs **Go 1.25** (from `go.dev`) if `go` is missing or too old.
+4. Installs **Node.js 20** (from NodeSource) if `node` is missing or too old.
+5. Clones the repo to `/opt/monivex-src`.
+6. Builds the UI + Go binary.
+7. Runs `deploy/install.sh` — creates the `server-monitor` system user, drops the binary at `/opt/server-monitor/`, writes `/etc/server-monitor/config.yaml`, installs the systemd unit, starts the service, **waits for the first-run banner, and prints the setup or pairing token right there.**
+
+### Prefer to inspect first?
+
+The one-liner above just runs [`install.sh`](install.sh) — read it, then run it locally:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ANASDAVOODTK/monivex/main/install.sh -o install.sh
+less install.sh                  # eyeball it
+sudo bash install.sh             # or:  sudo bash install.sh --agent
+```
+
+### Manual install (already have Go + Node)
+
+If you'd rather not touch the auto-installer:
 
 ```bash
 git clone https://github.com/ANASDAVOODTK/monivex.git
 cd monivex
-
-make build           # compiles UI + binary  (run as your user)
-sudo make install    # installs systemd service  (run as root)
+make build           # as your user
+sudo make install    # installs systemd service (add --agent via `sudo make install-agent`)
 ```
 
-> **Run `make build` as your regular user, not under `sudo`.** `sudo` resets `PATH`, and if you installed Node via nvm (`/root/.nvm/...` or `/home/<you>/.nvm/...`) the npm binary disappears from that stripped PATH. If you're already root in your shell, just drop the `sudo` from both commands.
+> **Don't `sudo make build`.** `sudo` resets `PATH`, so nvm's npm disappears. Run `make build` as your regular user (or as root without `sudo`).
 
-The installer creates the `server-monitor` system user, drops the binary at `/opt/server-monitor/`, writes `/etc/server-monitor/config.yaml`, installs the systemd unit, starts the service, **waits for the first-run banner, and prints the setup token right there**:
+The installer output ends with the info you need:
 
 ```
 ==> Hub installed.
@@ -206,16 +232,13 @@ Pick **one** machine as the **hub** (where you log in to see the fleet). Every o
 
 ### 1. On every monitored host — install in agent mode
 
-Same repo, one extra flag:
+One command:
 
 ```bash
-git clone https://github.com/ANASDAVOODTK/monivex.git
-cd monivex
-make build
-sudo make install-agent
+curl -fsSL https://raw.githubusercontent.com/ANASDAVOODTK/monivex/main/install.sh | sudo bash -s -- --agent
 ```
 
-The installer sets `mode: agent`, binds the service on **:8090** (so a hub and an agent can coexist on the same box if you ever want that), waits for the agent's first-run output, and prints the pairing token directly:
+The bootstrap installs Go/Node/git/make if they're missing, clones + builds the repo, sets `mode: agent`, binds the service on **:8090** (so a hub and an agent can coexist on the same box), waits for the agent's first-run output, and prints the pairing token directly:
 
 ```
 ==> Agent installed.
