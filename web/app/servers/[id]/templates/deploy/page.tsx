@@ -53,11 +53,13 @@ function DeployForm() {
   );
 
   const load = useCallback(async () => {
+    if (!serverId) return;
     if (!templateId) {
       setErr('No template selected.');
       setLoading(false);
       return;
     }
+    setErr(null);
     try {
       const t = await api.templateGet(serverId, templateId);
       setTemplate(t);

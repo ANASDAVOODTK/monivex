@@ -3,6 +3,11 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+function serverIdFromPath(path: string): string {
+  const m = path.match(/\/servers\/([^/]+)/);
+  return m && m[1] ? decodeURIComponent(m[1]) : '';
+}
+
 /**
  * Returns the current server id parsed from the URL path (/servers/<id>/...).
  *
@@ -14,19 +19,22 @@ import { useEffect, useState } from 'react';
  * that doesn't exist.
  *
  * window.location.pathname always holds the true URL, so we parse the id from
- * there. We return '' on the first render (matching the build-time HTML) and
- * fill in the real id after mount to avoid a hydration mismatch. usePathname()
- * is used as the effect trigger so the id updates on client-side navigation.
+ * there — already on the FIRST render. Returning '' first and filling the id
+ * in after mount made pages fire their initial API calls against
+ * /servers//..., which the hub answers with "server not found". Reading the
+ * URL during render is hydration-safe here because every caller sits behind
+ * DashboardShell's auth gate: it only mounts its children client-side, after
+ * hydration, so there is no pre-rendered HTML for this value to mismatch.
+ * usePathname() keeps the id in sync on client-side navigation.
  */
 export function useServerId(): string {
   const pathname = usePathname();
-  const [id, setId] = useState('');
+  const [id, setId] = useState(() =>
+    typeof window !== 'undefined' ? serverIdFromPath(window.location.pathname) : '',
+  );
 
   useEffect(() => {
-    const path =
-      typeof window !== 'undefined' ? window.location.pathname : pathname ?? '';
-    const m = path.match(/\/servers\/([^/]+)/);
-    setId(m && m[1] ? decodeURIComponent(m[1]) : '');
+    setId(serverIdFromPath(window.location.pathname));
   }, [pathname]);
 
   return id;
