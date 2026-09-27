@@ -86,7 +86,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/history", s.handleHistory)
 			r.Get("/logs/sources", s.handleLogSources)
 
-			// ---- Templates (hub mode only) ----
+			// ---- Templates (hub and agent: the hub proxies per-server calls here) ----
 			if s.templates != nil {
 				r.Get("/templates", s.handleTemplatesList)
 				r.Get("/templates/{templateId}", s.handleTemplateGet)
@@ -101,6 +101,16 @@ func (s *Server) Handler() http.Handler {
 				r.Post("/templates/deployments/{id}/update", s.handleDeploymentUpdate)
 				r.Post("/templates/deployments/{id}/edit", s.handleDeploymentEdit)
 				r.Post("/templates/deployments/{id}/delete", s.handleDeploymentDelete)
+				// Edge Functions + secrets (drivers implementing FunctionsSupport).
+				r.Get("/templates/deployments/{id}/functions", s.handleFunctionsList)
+				r.Get("/templates/deployments/{id}/functions/file", s.handleFunctionFileGet)
+				r.Put("/templates/deployments/{id}/functions/file", s.handleFunctionFilePut)
+				r.Delete("/templates/deployments/{id}/functions/file", s.handleFunctionFileDelete)
+				r.Post("/templates/deployments/{id}/functions/restart", s.handleFunctionsRestart)
+				r.Get("/templates/deployments/{id}/secrets", s.handleSecretsGet)
+				r.Put("/templates/deployments/{id}/secrets", s.handleSecretsPut)
+				r.Put("/templates/deployments/{id}/secrets/files", s.handleSecretFilePut)
+				r.Delete("/templates/deployments/{id}/secrets/files", s.handleSecretFileDelete)
 			}
 
 			// ---- Multi-server: registry + per-server API (hub mode only) ----

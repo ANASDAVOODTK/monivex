@@ -26,6 +26,9 @@ type Service struct {
 	composeBin string // "docker"
 
 	mu sync.Mutex // serialize lifecycle ops per process
+	// fnMu serializes edits to function sources / secrets. Kept separate
+	// from mu so an edit is not blocked behind a long compose operation.
+	fnMu sync.Mutex
 }
 
 // NewService wires the registry, store and on-disk workdir root together.
@@ -551,6 +554,15 @@ func (s *Service) writeArtifacts(driver Driver, d *Deployment) error {
 	if err != nil {
 		return fmt.Errorf("render: %w", err)
 	}
+	for rel, mode := range rendered.Dirs {
+		full, err := workdirPath(d.WorkDir, rel)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(full, mode); err != nil {
+			return fmt.Errorf("mkdir %s: %w", rel, err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(d.WorkDir, "docker-compose.yml"), []byte(rendered.Compose), 0o644); err != nil {
 		return fmt.Errorf("write compose: %w", err)
 	}
@@ -558,18 +570,51 @@ func (s *Service) writeArtifacts(driver Driver, d *Deployment) error {
 		return fmt.Errorf("write env: %w", err)
 	}
 	for rel, content := range rendered.Files {
-		// Reject absolute paths or path escapes to keep writes inside workdir.
-		clean := filepath.Clean(rel)
-		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.Contains(clean, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("driver returned unsafe file path: %s", rel)
+		if err := writeWorkdirFile(d.WorkDir, rel, content, false); err != nil {
+			return err
 		}
-		full := filepath.Join(d.WorkDir, clean)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", clean, err)
+	}
+	for rel, content := range rendered.SeedFiles {
+		if err := writeWorkdirFile(d.WorkDir, rel, content, true); err != nil {
+			return err
 		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", clean, err)
+	}
+	return nil
+}
+
+// workdirPath joins a driver-supplied relative path onto the workdir,
+// rejecting absolute paths and escapes so writes stay inside the workdir.
+func workdirPath(workDir, rel string) (string, error) {
+	clean := filepath.Clean(rel)
+	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.Contains(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("driver returned unsafe file path: %s", rel)
+	}
+	return filepath.Join(workDir, clean), nil
+}
+
+// writeWorkdirFile writes one rendered file. With seedOnly it leaves an
+// existing file untouched.
+func writeWorkdirFile(workDir, rel, content string, seedOnly bool) error {
+	full, err := workdirPath(workDir, rel)
+	if err != nil {
+		return err
+	}
+	if seedOnly {
+		if _, err := os.Lstat(full); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat %s: %w", rel, err)
 		}
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", rel, err)
+	}
+	mode := os.FileMode(0o644)
+	if strings.HasPrefix(filepath.Base(full), ".env") {
+		mode = 0o600
+	}
+	if err := os.WriteFile(full, []byte(content), mode); err != nil {
+		return fmt.Errorf("write %s: %w", rel, err)
 	}
 	return nil
 }
@@ -613,7 +658,7 @@ func (s *Service) assertPortsFree(ctx context.Context, ports map[string]int, exc
 	return nil
 }
 
-func toDeployment(_ *Service, row *store.TemplateDeployment, _ context.Context) (*Deployment, error) {
+func toDeployment(s *Service, row *store.TemplateDeployment, ctx context.Context) (*Deployment, error) {
 	d := &Deployment{
 		ID:         row.ID,
 		TemplateID: row.TemplateID,
@@ -630,6 +675,15 @@ func toDeployment(_ *Service, row *store.TemplateDeployment, _ context.Context) 
 	d.Env = map[string]string{}
 	_ = json.Unmarshal(row.ConfigJSON, &d.Config)
 	_ = json.Unmarshal(row.PortsJSON, &d.Ports)
+	// Extra env vars live in their own table. Without them every re-render
+	// (Start / Update / Edit) would silently drop them from .env.
+	envRows, err := s.store.GetTemplateDeploymentEnv(ctx, row.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load env: %w", err)
+	}
+	for _, e := range envRows {
+		d.Env[e.Key] = e.Value
+	}
 	return d, nil
 }
 
@@ -662,13 +716,20 @@ func newDeploymentID() string {
 	return hex.EncodeToString(b)
 }
 
+// OneShotLabel marks a compose service that is expected to run to completion
+// (e.g. a permissions-fixing init container). Drivers set it as a container
+// label; the reconciler ignores such containers once they exit with code 0.
+const OneShotLabel = "server-monitor.oneshot"
+
 // summarizeComposeState examines the JSON output of `docker compose ps` and
 // derives an overall deployment status. Empty output means no containers.
 func summarizeComposeState(out []byte) (string, string) {
 	type item struct {
-		Service string `json:"Service"`
-		State   string `json:"State"`
-		Status  string `json:"Status"`
+		Service  string `json:"Service"`
+		State    string `json:"State"`
+		Status   string `json:"Status"`
+		ExitCode int    `json:"ExitCode"`
+		Labels   string `json:"Labels"`
 	}
 	text := strings.TrimSpace(string(out))
 	if text == "" {
@@ -696,6 +757,15 @@ func summarizeComposeState(out []byte) (string, string) {
 	var firstProblem string
 	for _, it := range items {
 		state := strings.ToLower(it.State)
+		if strings.Contains(it.Labels, OneShotLabel+"=true") {
+			if state == "exited" && it.ExitCode != 0 {
+				problem++
+				if firstProblem == "" {
+					firstProblem = fmt.Sprintf("%s: exited with code %d", it.Service, it.ExitCode)
+				}
+			}
+			continue
+		}
 		switch {
 		case state == "running":
 			running++
@@ -714,6 +784,9 @@ func summarizeComposeState(out []byte) (string, string) {
 				}
 			}
 		}
+	}
+	if running == 0 && stopped == 0 && problem == 0 {
+		return StatusStopped, "no containers"
 	}
 	if problem == 0 && stopped == 0 && running > 0 {
 		return StatusRunning, ""

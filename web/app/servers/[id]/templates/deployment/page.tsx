@@ -7,6 +7,7 @@ import { EmptyState, Notice, PageHeader, StatusBadge } from '@/components/ui';
 import { useServerId } from '@/lib/use-server-id';
 import { api } from '@/lib/api';
 import type { BackupListing, Deployment, DeploymentEvent, TemplateDefinition } from '@/lib/types';
+import { EdgeFunctionsPanel } from './edge-functions';
 import {
   ArrowLeft,
   Boxes,
@@ -257,6 +258,8 @@ function DeploymentDetail() {
           </table>
         </div>
       </section>
+
+      {dep.template_id === 'supabase' && <EdgeFunctionsPanel serverId={serverId} dep={dep} />}
 
       <section className="card card-pad space-y-3">
         <div className="flex items-center justify-between">

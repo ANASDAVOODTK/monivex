@@ -170,4 +170,45 @@ export const api = {
       `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/delete${removeVolumes ? '?volumes=true' : ''}`,
       { method: 'POST' },
     ),
+
+  // ---- Edge Functions + secrets (Supabase deployments) ----
+  functionsList: (serverId: string, id: string) =>
+    request<import('./types').FunctionsInfo>(
+      `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/functions`,
+    ),
+  functionFileGet: (serverId: string, id: string, path: string) =>
+    request<import('./types').FunctionFile>(
+      `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/functions/file?path=${enc(path)}`,
+    ),
+  functionFileSave: (serverId: string, id: string, path: string, content: string) =>
+    request<{ ok: boolean }>(`/servers/${enc(serverId)}/templates/deployments/${enc(id)}/functions/file`, {
+      method: 'PUT',
+      body: JSON.stringify({ path, content }),
+    }),
+  functionPathDelete: (serverId: string, id: string, path: string) =>
+    request<{ ok: boolean }>(
+      `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/functions/file?path=${enc(path)}`,
+      { method: 'DELETE' },
+    ),
+  functionsRestart: (serverId: string, id: string) =>
+    request<{ ok: boolean }>(`/servers/${enc(serverId)}/templates/deployments/${enc(id)}/functions/restart`, {
+      method: 'POST',
+    }),
+  secretsGet: (serverId: string, id: string) =>
+    request<import('./types').SecretsInfo>(`/servers/${enc(serverId)}/templates/deployments/${enc(id)}/secrets`),
+  secretsSave: (serverId: string, id: string, env: import('./types').SecretEnv[]) =>
+    request<{ ok: boolean }>(`/servers/${enc(serverId)}/templates/deployments/${enc(id)}/secrets`, {
+      method: 'PUT',
+      body: JSON.stringify({ env }),
+    }),
+  secretFileUpload: (serverId: string, id: string, name: string, contentBase64: string) =>
+    request<{ ok: boolean }>(`/servers/${enc(serverId)}/templates/deployments/${enc(id)}/secrets/files`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, content_base64: contentBase64 }),
+    }),
+  secretFileDelete: (serverId: string, id: string, name: string) =>
+    request<{ ok: boolean }>(
+      `/servers/${enc(serverId)}/templates/deployments/${enc(id)}/secrets/files?name=${enc(name)}`,
+      { method: 'DELETE' },
+    ),
 };

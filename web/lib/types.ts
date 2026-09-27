@@ -269,3 +269,61 @@ export interface EditInput {
   env?: Record<string, string>;
   restart?: boolean;
 }
+
+// ---- Edge Functions + secrets (templates implementing FunctionsSupport) ----
+
+export interface FunctionsLayout {
+  source_dir: string;
+  secrets_env_file: string;
+  secret_files_dir: string;
+  secret_files_mount: string;
+  service: string;
+  route_prefix: string;
+  system: string[];
+  reserved_env: string[];
+  reserved_env_prefixes: string[];
+}
+
+export interface FunctionFileInfo {
+  path: string;
+  size: number;
+  mod_time: string;
+}
+
+export interface FunctionEntry {
+  name: string;
+  system: boolean;
+  files: FunctionFileInfo[];
+}
+
+export interface FunctionsInfo {
+  enabled: boolean;
+  layout?: FunctionsLayout;
+  functions: FunctionEntry[];
+  root_files: FunctionFileInfo[];
+}
+
+export interface FunctionFile {
+  path: string;
+  content: string;
+  mod_time: string;
+}
+
+export interface SecretEnv {
+  key: string;
+  value: string;
+}
+
+export interface SecretFileInfo {
+  name: string;
+  size: number;
+  mod_time: string;
+  container_path: string;
+}
+
+export interface SecretsInfo {
+  enabled: boolean;
+  layout?: FunctionsLayout;
+  env: SecretEnv[];
+  files: SecretFileInfo[];
+}

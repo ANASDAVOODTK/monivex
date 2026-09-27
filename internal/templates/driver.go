@@ -2,16 +2,27 @@ package templates
 
 import (
 	"fmt"
+	"io/fs"
 	"regexp"
 )
 
 // RenderedArtifacts is what a driver returns when materializing a deployment.
 // Files are written relative to the deployment workdir. The compose file path
-// is fixed at docker-compose.yml and the env file at .env.
+// is fixed at docker-compose.yml and the env file at .env. Any file whose base
+// name starts with ".env" is written with mode 0600.
 type RenderedArtifacts struct {
 	Compose string            // docker-compose.yml content
 	Env     string            // .env file content
 	Files   map[string]string // additional relative path -> content (e.g. volumes/kong.yml)
+	// SeedFiles are written only when the file does not exist yet. Use them
+	// for starter content the user is expected to edit afterwards (function
+	// sources, secret env files) so re-rendering on Start/Update never
+	// clobbers their changes.
+	SeedFiles map[string]string
+	// Dirs are created (mkdir -p, relative to the workdir) before compose
+	// runs. Bind-mount sources that do not exist are otherwise created by the
+	// Docker daemon as root, which this process then cannot write into.
+	Dirs map[string]fs.FileMode
 }
 
 // Driver implements the template-specific rendering and validation. The Service

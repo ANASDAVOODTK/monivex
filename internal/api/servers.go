@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -244,6 +245,33 @@ func (s *Server) registerServerScopedRoutes(r chi.Router) {
 	r.Post("/templates/deployments/{id}/update", s.scopedDeployment("update"))
 	r.Post("/templates/deployments/{id}/edit", s.scopedDeployment("edit"))
 	r.Post("/templates/deployments/{id}/delete", s.scopedDeployment("delete"))
+	r.Get("/templates/deployments/{id}/functions", s.scopedDeploymentSub("/functions", s.handleFunctionsList))
+	r.Get("/templates/deployments/{id}/functions/file", s.scopedDeploymentSub("/functions/file", s.handleFunctionFileGet))
+	r.Put("/templates/deployments/{id}/functions/file", s.scopedDeploymentSub("/functions/file", s.handleFunctionFilePut))
+	r.Delete("/templates/deployments/{id}/functions/file", s.scopedDeploymentSub("/functions/file", s.handleFunctionFileDelete))
+	r.Post("/templates/deployments/{id}/functions/restart", s.scopedDeploymentSub("/functions/restart", s.handleFunctionsRestart))
+	r.Get("/templates/deployments/{id}/secrets", s.scopedDeploymentSub("/secrets", s.handleSecretsGet))
+	r.Put("/templates/deployments/{id}/secrets", s.scopedDeploymentSub("/secrets", s.handleSecretsPut))
+	r.Put("/templates/deployments/{id}/secrets/files", s.scopedDeploymentSub("/secrets/files", s.handleSecretFilePut))
+	r.Delete("/templates/deployments/{id}/secrets/files", s.scopedDeploymentSub("/secrets/files", s.handleSecretFileDelete))
+}
+
+// scopedDeploymentSub dispatches /templates/deployments/{id}<suffix>: the
+// local handler for self, otherwise a proxy to the same path on the agent
+// (method, body and query string are forwarded as-is).
+func (s *Server) scopedDeploymentSub(suffix string, localHandler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sv, apiKey, ok := s.resolveServer(w, r)
+		if !ok {
+			return
+		}
+		depID := chi.URLParam(r, "id")
+		if sv.IsSelf {
+			localHandler(w, withChiParam(r, "id", depID))
+			return
+		}
+		proxyHTTP(w, r, sv.BaseURL, apiKey, "/api/v1/templates/deployments/"+url.PathEscape(depID)+suffix)
+	}
 }
 
 // scoped wraps a local handler with self/remote dispatch. The upstreamPath

@@ -93,6 +93,13 @@ func (c *Compose) Down(ctx context.Context, removeVolumes bool) ([]byte, error) 
 	return c.run(ctx, 10*time.Minute, args...)
 }
 
+// Recreate force-recreates the named services without touching their
+// dependencies. Used to apply env_file or mounted-file changes to one service.
+func (c *Compose) Recreate(ctx context.Context, services ...string) ([]byte, error) {
+	args := append([]string{"up", "-d", "--no-deps", "--force-recreate"}, services...)
+	return c.run(ctx, 10*time.Minute, args...)
+}
+
 // PS returns raw `docker compose ps` JSON output.
 func (c *Compose) PS(ctx context.Context) ([]byte, error) {
 	return c.run(ctx, 30*time.Second, "ps", "--format", "json", "--all")

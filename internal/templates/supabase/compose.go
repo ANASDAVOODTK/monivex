@@ -36,7 +36,9 @@ services:
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
     volumes:
       - studio-snippets:/app/snippets
-      - studio-functions:/app/edge-functions
+      # Same directory the edge runtime serves from, so Studio lists the
+      # functions that are actually deployed.
+      - ./volumes/functions:/app/edge-functions
 
   kong:
     image: kong:2.8.1
@@ -50,7 +52,8 @@ services:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      # request-termination blocks the Realtime tenant/openapi admin endpoints.
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       SUPABASE_ANON_KEY: ${ANON_KEY}
@@ -116,6 +119,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      default:
+        aliases:
+          # Realtime takes the tenant from the first label of the Host
+          # header. Kong connects via this alias so requests resolve to the
+          # seeded "{{ .RealtimeTenant }}" tenant instead of "realtime"
+          # (TenantNotFound / WebSocket 403).
+          - {{ .RealtimeHost }}
     environment:
       PORT: "4000"
       DB_HOST: db
@@ -132,6 +143,7 @@ services:
       DNS_NODES: "''"
       RLIMIT_NOFILE: "10000"
       SEED_SELF_HOST: "true"
+      SELF_HOST_TENANT_NAME: {{ .RealtimeTenant }}
       RUN_JANITOR: "true"
       DISABLE_HEALTHCHECK_LOGGING: "true"
 
@@ -218,7 +230,55 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432/tcp"
 
+{{- if .FunctionsEnabled }}
+
+  functions:
+    # Supabase Edge Runtime, served by Kong at /functions/v1/<name>.
+    # Sources: ./volumes/functions (shared with Studio). Secrets:
+    # .env.functions, plus files in ./volumes/secrets mounted read-only at
+    # /run/secrets (e.g. APNS_PRIVATE_KEY_FILE=/run/secrets/AuthKey.p8).
+    # All three are managed from the deployment page.
+    image: {{ .FunctionsImage }}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.functions
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${PUBLIC_API_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_DB_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Read by main/index.ts. "true" rejects calls without a valid JWT.
+      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"
+    volumes:
+      - ./volumes/functions:/home/deno/functions
+      - ./volumes/secrets:/run/secrets:ro
+    command:
+      - start
+      - --main-service
+      - /home/deno/functions/main
+{{- end }}
+
 {{- if .BackupEnabled }}
+
+  backup-init:
+    # One-shot: db-backup runs as the image's unprivileged "postgres" user,
+    # but a host directory created by Docker or by server-monitor is not
+    # writable by it. Hand ./volumes/backup/db to that user (resolved inside
+    # the same image, so the uid always matches) before db-backup starts.
+    image: prodrigestivill/postgres-backup-local:15
+    restart: "no"
+    user: root
+    labels:
+      {{ .OneShotLabel }}: "true"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /backups && chown -R postgres:postgres /backups && chmod -R u+rwX,g+rwX,o+rX /backups"]
+    volumes:
+      - ./volumes/backup/db:/backups
 
   db-backup:
     # Runs pg_dump on a cron schedule and writes compressed dumps to
@@ -228,6 +288,8 @@ services:
     restart: unless-stopped
     user: postgres:postgres
     depends_on:
+      backup-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     environment:
@@ -264,7 +326,9 @@ services:
     volumes:
       - storage-data:/backup/storage-data:ro
       - studio-snippets:/backup/studio-snippets:ro
-      - studio-functions:/backup/studio-functions:ro
+      # Function sources only. .env.functions and ./volumes/secrets are
+      # deliberately excluded: back those up separately and encrypted.
+      - ./volumes/functions:/backup/studio-functions:ro
       - ./volumes/backup/files:/archive
 {{- end }}
 
@@ -272,5 +336,8 @@ volumes:
   db-data:
   storage-data:
   studio-snippets:
+  # No longer mounted (functions moved to ./volumes/functions). Still declared
+  # so deleting the deployment with volumes also removes data left in it by
+  # older versions of this template.
   studio-functions:
 `

@@ -1,17 +1,29 @@
 // Package supabase provides a Supabase self-hosted template driver. It renders
 // a docker-compose.yml that wires together the core Supabase services
 // (Postgres, Studio, Kong gateway, GoTrue, PostgREST, Realtime, Storage,
-// Imgproxy and pg-meta) parameterized for one isolated project.
+// Imgproxy, pg-meta and the Edge Functions runtime) parameterized for one
+// isolated project.
 package supabase
 
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"regexp"
 	"strings"
 	"text/template"
 
 	"github.com/ANASDAVOODTK/server-monitor/internal/templates"
+)
+
+// Realtime resolves the tenant from the first label of the Host header it
+// receives. SEED_SELF_HOST creates the tenant "realtime-dev", so Kong must
+// reach the container under a hostname starting with "realtime-dev.". The
+// name is a network alias (scoped to this compose project's network) rather
+// than a container_name, so several Supabase deployments can share a host.
+const (
+	realtimeTenant = "realtime-dev"
+	realtimeHost   = realtimeTenant + ".supabase-realtime"
 )
 
 // Driver is the Supabase template implementation.
@@ -45,6 +57,8 @@ func (d *Driver) Definition() templates.Definition {
 			{Key: "backup_enabled", Label: "Enable scheduled backups", Type: templates.FieldText, Required: false, Default: "yes", Description: "Set to 'yes' to run automated Postgres + Storage backups inside this deployment. Set to 'no' to skip the backup sidecars entirely.", Group: "backup"},
 			{Key: "backup_schedule", Label: "Backup cron schedule", Type: templates.FieldText, Required: false, Default: "0 3 * * *", Description: "Standard 5-field cron (minute hour dom month dow). Applied to both the Postgres dump and the file-volume tarball.", Group: "backup"},
 			{Key: "backup_keep_days", Label: "Keep daily backups for (days)", Type: templates.FieldNumber, Required: false, Default: "7", Description: "Daily backups older than this are pruned. Postgres backups also retain 4 weekly and 6 monthly snapshots automatically.", Group: "backup"},
+			{Key: "functions_enabled", Label: "Enable Edge Functions", Type: templates.FieldText, Required: false, Default: "yes", Description: "Set to 'yes' to run the Edge Functions runtime (served at /functions/v1/<name>). Function code and secrets are managed from the deployment page.", Group: "functions"},
+			{Key: "functions_verify_jwt", Label: "Require JWT for functions", Type: templates.FieldText, Required: false, Default: "yes", Description: "When 'yes', every function call needs 'Authorization: Bearer <JWT>' signed with the JWT secret (the anon key works). Set to 'no' only if each function does its own auth, e.g. for webhooks.", Group: "functions"},
 		},
 		Ports: []templates.PortField{
 			{Key: "kong_http", Label: "Kong API gateway", Default: 8000, Description: "Public REST/auth/storage URL host port."},
@@ -86,11 +100,28 @@ func (d *Driver) Validate(input templates.DeployInput) error {
 
 func (d *Driver) Render(dep *templates.Deployment) (templates.RenderedArtifacts, error) {
 	data := struct {
-		Dep           *templates.Deployment
-		Config        map[string]string
-		Ports         map[string]int
-		BackupEnabled bool
-	}{Dep: dep, Config: dep.Config, Ports: dep.Ports, BackupEnabled: backupEnabled(dep.Config)}
+		Dep                *templates.Deployment
+		Config             map[string]string
+		Ports              map[string]int
+		BackupEnabled      bool
+		FunctionsEnabled   bool
+		FunctionsVerifyJWT string
+		FunctionsImage     string
+		RealtimeTenant     string
+		RealtimeHost       string
+		OneShotLabel       string
+	}{
+		Dep:                dep,
+		Config:             dep.Config,
+		Ports:              dep.Ports,
+		BackupEnabled:      backupEnabled(dep.Config),
+		FunctionsEnabled:   functionsEnabled(dep.Config),
+		FunctionsVerifyJWT: functionsVerifyJWT(dep.Config),
+		FunctionsImage:     functionsRuntimeTag,
+		RealtimeTenant:     realtimeTenant,
+		RealtimeHost:       realtimeHost,
+		OneShotLabel:       templates.OneShotLabel,
+	}
 
 	composeBuf := &bytes.Buffer{}
 	if err := composeTpl.Execute(composeBuf, data); err != nil {
@@ -111,14 +142,29 @@ func (d *Driver) Render(dep *templates.Deployment) (templates.RenderedArtifacts,
 	if err != nil {
 		return templates.RenderedArtifacts{}, err
 	}
-	return templates.RenderedArtifacts{
+	out := templates.RenderedArtifacts{
 		Compose: composeBuf.String(),
 		Env:     envBuf.String(),
 		Files: map[string]string{
 			"volumes/kong.yml":    kongBuf.String(),
 			"volumes/db/init.sql": initSQL,
 		},
-	}, nil
+		SeedFiles: map[string]string{},
+		// Studio always bind-mounts the functions dir, so create it here
+		// (owned by this process) instead of letting Docker create it as root.
+		Dirs: map[string]fs.FileMode{functionsSourceDir: 0o755},
+	}
+	if data.FunctionsEnabled {
+		out.Dirs[functionsSecretsDir] = 0o700
+		for k, v := range functionsSeedFiles() {
+			out.SeedFiles[k] = v
+		}
+	}
+	if data.BackupEnabled {
+		out.Dirs["volumes/backup/db"] = 0o755
+		out.Dirs["volumes/backup/files"] = 0o755
+	}
+	return out, nil
 }
 
 var envTpl = template.Must(template.New("env").Funcs(template.FuncMap{
@@ -146,6 +192,7 @@ POSTGRES_PORT={{ .Ports.postgres }}
 PROJECT_SLUG={{ .Dep.Slug }}
 BACKUP_SCHEDULE={{ default .Config.backup_schedule "0 3 * * *" }}
 BACKUP_KEEP_DAYS={{ default .Config.backup_keep_days "7" }}
+FUNCTIONS_VERIFY_JWT={{ .FunctionsVerifyJWT }}
 `))
 
 var composeTpl = template.Must(template.New("compose").Funcs(template.FuncMap{
@@ -176,13 +223,7 @@ var envKeyRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 // backupEnabled reports whether the user opted in to backup sidecars. The
 // default in the Definition is "yes"; any value other than yes/true/1
 // disables the services.
-func backupEnabled(cfg map[string]string) bool {
-	v := strings.ToLower(strings.TrimSpace(cfg["backup_enabled"]))
-	if v == "" {
-		return true
-	}
-	return v == "yes" || v == "true" || v == "1" || v == "on"
-}
+func backupEnabled(cfg map[string]string) bool { return yesDefault(cfg["backup_enabled"]) }
 
 // validateBackupConfig sanity-checks the user-facing backup fields. The cron
 // expression accepts standard 5-field form and the optional leading second

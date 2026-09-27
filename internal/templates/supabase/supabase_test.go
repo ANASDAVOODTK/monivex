@@ -182,12 +182,23 @@ func TestRenderIncludesBackupServicesByDefault(t *testing.T) {
 		"./volumes/backup/files:/archive",
 		"storage-data:/backup/storage-data:ro",
 		"studio-snippets:/backup/studio-snippets:ro",
-		"studio-functions:/backup/studio-functions:ro",
+		"./volumes/functions:/backup/studio-functions:ro",
 		"acme-files-",
 		"BACKUP_CRON_EXPRESSION: ${BACKUP_SCHEDULE}",
+		// Permission fix: a root one-shot hands the dump dir to the
+		// image's postgres user before db-backup starts.
+		"backup-init:",
+		"chown -R postgres:postgres /backups",
+		templates.OneShotLabel + `: "true"`,
+		"condition: service_completed_successfully",
 	} {
 		if !strings.Contains(out.Compose, want) {
 			t.Errorf("compose missing backup snippet %q", want)
+		}
+	}
+	for _, dir := range []string{"volumes/backup/db", "volumes/backup/files"} {
+		if _, ok := out.Dirs[dir]; !ok {
+			t.Errorf("Dirs missing %s: %v", dir, out.Dirs)
 		}
 	}
 	for _, want := range []string{
@@ -208,10 +219,125 @@ func TestRenderOmitsBackupServicesWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	for _, banned := range []string{"db-backup:", "files-backup:", "prodrigestivill", "offen/docker-volume-backup"} {
+	for _, banned := range []string{"db-backup:", "backup-init:", "files-backup:", "prodrigestivill", "offen/docker-volume-backup"} {
 		if strings.Contains(out.Compose, banned) {
 			t.Errorf("compose still contains %q when backups are disabled", banned)
 		}
+	}
+}
+
+func TestRenderRealtimeUsesTenantAwareHost(t *testing.T) {
+	out, err := New().Render(buildDeployment())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	// The alias must be a network alias, not a container_name, so two
+	// Supabase deployments on one Docker host don't collide.
+	if !strings.Contains(out.Compose, "aliases:\n          # Realtime") || !strings.Contains(out.Compose, "- realtime-dev.supabase-realtime") {
+		t.Errorf("realtime service missing tenant-aware network alias:\n%s", out.Compose)
+	}
+	if strings.Contains(out.Compose, "container_name") {
+		t.Errorf("compose must not pin container names")
+	}
+	if !strings.Contains(out.Compose, "request-termination") {
+		t.Errorf("KONG_PLUGINS must enable request-termination for the realtime block routes")
+	}
+	kong := out.Files["volumes/kong.yml"]
+	for _, want := range []string{
+		"url: http://realtime-dev.supabase-realtime:4000/socket\n    protocol: ws",
+		"- /realtime/v1/api/openapi",
+		"- /realtime/v1/api/tenants",
+		"url: http://realtime-dev.supabase-realtime:4000/api\n",
+		"- /realtime/v1/api\n",
+	} {
+		if !strings.Contains(kong, want) {
+			t.Errorf("kong.yml missing %q", want)
+		}
+	}
+	if strings.Contains(kong, "http://realtime:4000") {
+		t.Errorf("kong.yml still routes to the tenant-less realtime host")
+	}
+	if strings.Count(kong, "status_code: 403") != 2 {
+		t.Errorf("expected both realtime admin endpoints to be blocked")
+	}
+}
+
+func TestRenderIncludesEdgeFunctionsByDefault(t *testing.T) {
+	d := New()
+	dep := buildDeployment()
+	out, err := d.Render(dep)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, want := range []string{
+		"  functions:\n",
+		"image: supabase/edge-runtime:v1.76.2",
+		"env_file:\n      - .env.functions",
+		"VERIFY_JWT: \"${FUNCTIONS_VERIFY_JWT}\"",
+		"./volumes/functions:/home/deno/functions",
+		"./volumes/secrets:/run/secrets:ro",
+		"- /home/deno/functions/main",
+		"./volumes/functions:/app/edge-functions",
+	} {
+		if !strings.Contains(out.Compose, want) {
+			t.Errorf("compose missing %q", want)
+		}
+	}
+	if strings.Contains(out.Compose, "studio-functions:/app/edge-functions") {
+		t.Errorf("studio must share the runtime's bind-mounted functions dir")
+	}
+	if !strings.Contains(out.Files["volumes/kong.yml"], "url: http://functions:9000/") {
+		t.Errorf("kong.yml missing /functions/v1/ route")
+	}
+	if !strings.Contains(out.Env, "FUNCTIONS_VERIFY_JWT=true") {
+		t.Errorf("env missing FUNCTIONS_VERIFY_JWT=true")
+	}
+	for _, seed := range []string{"volumes/functions/main/index.ts", "volumes/functions/deno.jsonc", ".env.functions"} {
+		if _, ok := out.SeedFiles[seed]; !ok {
+			t.Errorf("SeedFiles missing %s", seed)
+		}
+		if _, ok := out.Files[seed]; ok {
+			t.Errorf("%s must be seeded, not overwritten on every render", seed)
+		}
+	}
+	if !strings.Contains(out.SeedFiles["volumes/functions/main/index.ts"], "Deno.env.get('VERIFY_JWT')") {
+		t.Errorf("main worker does not read VERIFY_JWT")
+	}
+	if mode, ok := out.Dirs["volumes/secrets"]; !ok || mode != 0o700 {
+		t.Errorf("secrets dir should be created 0700, got %v (present=%v)", mode, ok)
+	}
+
+	layout, ok := d.FunctionsLayout(dep)
+	if !ok || layout.SourceDir != "volumes/functions" || layout.SecretFilesMount != "/run/secrets" || layout.Service != "functions" {
+		t.Errorf("unexpected functions layout: %+v ok=%v", layout, ok)
+	}
+}
+
+func TestRenderEdgeFunctionsToggles(t *testing.T) {
+	d := New()
+	dep := buildDeployment()
+	dep.Config["functions_verify_jwt"] = "no"
+	out, err := d.Render(dep)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out.Env, "FUNCTIONS_VERIFY_JWT=false") {
+		t.Errorf("functions_verify_jwt=no should render VERIFY_JWT false")
+	}
+
+	dep.Config["functions_enabled"] = "no"
+	out, err = d.Render(dep)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if strings.Contains(out.Compose, "edge-runtime") || strings.Contains(out.Files["volumes/kong.yml"], "functions-v1") {
+		t.Errorf("functions_enabled=no should drop the runtime and its route")
+	}
+	if len(out.SeedFiles) != 0 {
+		t.Errorf("no seed files expected when functions are disabled: %v", keys(out.SeedFiles))
+	}
+	if _, ok := d.FunctionsLayout(dep); ok {
+		t.Errorf("FunctionsLayout should report disabled")
 	}
 }
 

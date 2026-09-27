@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,21 @@ func TestSummarizeComposeState(t *testing.T) {
 	ndj := "{\"Service\":\"db\",\"State\":\"running\"}\n{\"Service\":\"api\",\"State\":\"running\"}"
 	if s, _ := summarizeComposeState([]byte(ndj)); s != StatusRunning {
 		t.Errorf("ndjson running -> want running, got %q", s)
+	}
+	// A finished one-shot init container must not mark the stack failed...
+	oneShotOK := `[{"Service":"db","State":"running"},{"Service":"init","State":"exited","ExitCode":0,"Labels":"com.docker.compose.project=x,server-monitor.oneshot=true"}]`
+	if s, _ := summarizeComposeState([]byte(oneShotOK)); s != StatusRunning {
+		t.Errorf("completed one-shot -> want running, got %q", s)
+	}
+	// ...or keep a stopped stack from reading as stopped...
+	stoppedWithOneShot := `[{"Service":"db","State":"exited","ExitCode":0},{"Service":"init","State":"exited","ExitCode":0,"Labels":"server-monitor.oneshot=true"}]`
+	if s, _ := summarizeComposeState([]byte(stoppedWithOneShot)); s != StatusStopped {
+		t.Errorf("stopped stack with one-shot -> want stopped, got %q", s)
+	}
+	// ...but a failed one-shot is a real problem.
+	oneShotFail := `[{"Service":"db","State":"running"},{"Service":"init","State":"exited","ExitCode":1,"Labels":"server-monitor.oneshot=true"}]`
+	if s, msg := summarizeComposeState([]byte(oneShotFail)); s != StatusFailed || !strings.Contains(msg, "init") {
+		t.Errorf("failed one-shot -> want failed mentioning init, got %q %q", s, msg)
 	}
 }
 
